@@ -33,6 +33,7 @@ const BookingSettings: React.FC = () => {
     }
     toast.success("Booking horizon updated");
     reload();
+    window.dispatchEvent(new CustomEvent('app-settings-updated'));
   };
 
   if (isLoading || !settings) {

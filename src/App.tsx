@@ -1,4 +1,5 @@
 
+import { useEffect } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -6,6 +7,7 @@ import { Routes, Route } from "react-router-dom";
 import { ThemeProvider } from "next-themes";
 import { AuthProvider } from "./contexts/AuthContext";
 import { OptimizedBookingProvider } from "./contexts/OptimizedBookingContext";
+import { useAppSettings } from "./hooks/useAppSettings";
 import AppLayout from "./components/layout/AppLayout";
 import Index from "./pages/Index";
 import Dashboard from "./pages/Dashboard";
@@ -19,6 +21,8 @@ import SettingsPage from "./pages/SettingsPage";
 import LoginPage from "./pages/LoginPage";
 import NotFound from "./pages/NotFound";
 
+const DEFAULT_FAVICON = "/lovable-uploads/c9351e76-a090-4113-bffa-7ee6800178c0.png";
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -28,12 +32,28 @@ const queryClient = new QueryClient({
   },
 });
 
+function FaviconManager() {
+  const { settings } = useAppSettings();
+  useEffect(() => {
+    const faviconUrl = settings?.favicon_url || DEFAULT_FAVICON;
+    let link = document.querySelector("link[rel='icon']") as HTMLLinkElement | null;
+    if (!link) {
+      link = document.createElement("link");
+      link.rel = "icon";
+      document.head.appendChild(link);
+    }
+    link.href = faviconUrl;
+  }, [settings?.favicon_url]);
+  return null;
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
         <TooltipProvider>
           <Toaster />
+          <FaviconManager />
           <AuthProvider>
             <OptimizedBookingProvider>
               <Routes>

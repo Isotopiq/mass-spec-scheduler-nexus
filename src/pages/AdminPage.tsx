@@ -13,6 +13,7 @@ import PendingBookingsManagement from "../components/admin/PendingBookingsManage
 import BookingHistoryManagement from "../components/admin/BookingHistoryManagement";
 import S3SettingsManagement from "../components/admin/S3SettingsManagement";
 import BookingSettings from "../components/admin/BookingSettings";
+import SiteAssetsSettings from "../components/admin/SiteAssetsSettings";
 import { Navigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 
@@ -45,17 +46,18 @@ const AdminPage: React.FC = () => {
       )}
       
       <Tabs value={activeTab} onValueChange={handleTabChange}>
-        <TabsList className="grid grid-cols-10 w-full max-w-7xl">
-          <TabsTrigger value="pending-bookings" className="px-2 py-2 text-sm">Pending</TabsTrigger>
-          <TabsTrigger value="booking-history" className="px-2 py-2 text-sm">History</TabsTrigger>
-          <TabsTrigger value="users" className="px-2 py-2 text-sm">Users</TabsTrigger>
-          <TabsTrigger value="instruments" className="px-2 py-2 text-sm">Instruments</TabsTrigger>
-          <TabsTrigger value="delays" className="px-2 py-2 text-sm">Delays</TabsTrigger>
-          <TabsTrigger value="status-colors" className="px-2 py-2 text-sm">Colors</TabsTrigger>
-          <TabsTrigger value="smtp" className="px-2 py-2 text-sm">SMTP</TabsTrigger>
-          <TabsTrigger value="email-templates" className="px-2 py-2 text-sm">Templates</TabsTrigger>
-          <TabsTrigger value="storage" className="px-2 py-2 text-sm">Storage</TabsTrigger>
-          <TabsTrigger value="booking-settings" className="px-2 py-2 text-sm">Booking</TabsTrigger>
+        <TabsList className="grid grid-cols-11 w-full max-w-7xl">
+          <TabsTrigger value="pending-bookings" className="px-2 py-2 text-sm" onClick={() => setActiveTab("pending-bookings")}>Pending</TabsTrigger>
+          <TabsTrigger value="booking-history" className="px-2 py-2 text-sm" onClick={() => setActiveTab("booking-history")}>History</TabsTrigger>
+          <TabsTrigger value="users" className="px-2 py-2 text-sm" onClick={() => setActiveTab("users")}>Users</TabsTrigger>
+          <TabsTrigger value="instruments" className="px-2 py-2 text-sm" onClick={() => setActiveTab("instruments")}>Instruments</TabsTrigger>
+          <TabsTrigger value="delays" className="px-2 py-2 text-sm" onClick={() => setActiveTab("delays")}>Delays</TabsTrigger>
+          <TabsTrigger value="status-colors" className="px-2 py-2 text-sm" onClick={() => setActiveTab("status-colors")}>Colors</TabsTrigger>
+          <TabsTrigger value="smtp" className="px-2 py-2 text-sm" onClick={() => setActiveTab("smtp")}>SMTP</TabsTrigger>
+          <TabsTrigger value="email-templates" className="px-2 py-2 text-sm" onClick={() => setActiveTab("email-templates")}>Templates</TabsTrigger>
+          <TabsTrigger value="storage" className="px-2 py-2 text-sm" onClick={() => setActiveTab("storage")}>Storage</TabsTrigger>
+          <TabsTrigger value="booking-settings" className="px-2 py-2 text-sm" onClick={() => setActiveTab("booking-settings")}>Booking</TabsTrigger>
+          <TabsTrigger value="site-assets" className="px-2 py-2 text-sm" onClick={() => setActiveTab("site-assets")}>Branding</TabsTrigger>
         </TabsList>
         
         <TabsContent value="pending-bookings" className="mt-6">
@@ -96,6 +98,10 @@ const AdminPage: React.FC = () => {
 
         <TabsContent value="booking-settings" className="mt-6">
           {activeTab === "booking-settings" && <BookingSettings />}
+        </TabsContent>
+
+        <TabsContent value="site-assets" className="mt-6">
+          {activeTab === "site-assets" && <SiteAssetsSettings />}
         </TabsContent>
       </Tabs>
     </div>

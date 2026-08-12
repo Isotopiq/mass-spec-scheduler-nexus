@@ -3,6 +3,7 @@ import React, { useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Button } from "../ui/button";
 import { useAuth } from "../../contexts/AuthContext";
+import { useAppSettings } from "../../hooks/useAppSettings";
 import { 
   Calendar, 
   BarChart3, 
@@ -24,8 +25,11 @@ import {
 } from "../ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 
+const DEFAULT_LOGO = "/lovable-uploads/40965317-613a-41b7-bc11-d9e8b6cba9ae.png";
+
 const Navbar: React.FC = () => {
   const { user, logout } = useAuth();
+  const { settings } = useAppSettings();
   const location = useLocation();
 
   const isActive = (path: string) => location.pathname === path;
@@ -61,7 +65,7 @@ const Navbar: React.FC = () => {
           <div className="flex items-center space-x-8">
             <Link to="/" className="flex items-center">
               <img 
-                src="/lovable-uploads/40965317-613a-41b7-bc11-d9e8b6cba9ae.png" 
+                src={settings?.logo_url || DEFAULT_LOGO} 
                 alt="TeSlab Lab Logo" 
                 className="h-8 w-auto object-contain"
               />

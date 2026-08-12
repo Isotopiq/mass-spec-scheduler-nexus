@@ -18,7 +18,7 @@ const AppLayout: React.FC = () => {
   
   // Update last activity on user interactions
   useEffect(() => {
-    const events = ['mousedown', 'keydown', 'touchstart', 'scroll'];
+    const events = ['click', 'keydown', 'scroll'];
     const activityHandler = () => {
       setLastActivity(Date.now());
     };

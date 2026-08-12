@@ -658,6 +658,16 @@ app.post('/api/auth/admin-create-user', requireAuth, requireAdmin, async (req, r
   }
 });
 
+app.get('/api/app-settings', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM app_settings LIMIT 1');
+    if (rows.length === 0) return res.json({ data: null, error: { message: 'Settings not found' } });
+    res.json({ data: rows[0], error: null });
+  } catch (err) {
+    res.status(500).json({ data: null, error: { message: err.message } });
+  }
+});
+
 app.post('/api/rest/query', requireAuth, handleRestQuery);
 
 // Storage

@@ -2,14 +2,18 @@
 import React, { useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
+import { useAppSettings } from "../hooks/useAppSettings";
 import LoginForm from "../components/auth/LoginForm";
 import PasswordResetDialog from "../components/auth/PasswordResetDialog";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Loader2 } from "lucide-react";
 
+const DEFAULT_LOGO = "/lovable-uploads/40965317-613a-41b7-bc11-d9e8b6cba9ae.png";
+
 const LoginPage: React.FC = () => {
   const { isLoading, isAuthenticated } = useAuth();
+  const { settings } = useAppSettings();
   const [isPasswordResetOpen, setIsPasswordResetOpen] = useState(false);
 
   console.log("LoginPage: Render - loading:", isLoading, "authenticated:", isAuthenticated);
@@ -40,7 +44,7 @@ const LoginPage: React.FC = () => {
       <div className="max-w-md w-full space-y-8">
         <div className="text-center">
           <img 
-            src="/lovable-uploads/40965317-613a-41b7-bc11-d9e8b6cba9ae.png" 
+            src={settings?.logo_url || DEFAULT_LOGO} 
             alt="TeSlab Lab Logo" 
             className="mx-auto h-16 w-auto object-contain mb-4"
           />
