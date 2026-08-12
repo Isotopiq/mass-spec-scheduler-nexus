@@ -1,6 +1,40 @@
-
-export interface User {
+export interface Profile {
   id: string;
+  name: string;
+  email: string;
+  role: 'admin' | 'user';
+  department?: string;
+  profileImage?: string | null;
+}
+
+export interface User extends Profile {
+  app_metadata?: Record<string, any>;
+  user_metadata?: Record<string, any>;
+  aud?: string;
+  created_at?: string;
+  updated_at?: string;
+  email_confirmed_at?: string | null;
+  phone?: string | null;
+  phone_confirmed_at?: string | null;
+  confirmation_sent_at?: string | null;
+  recovery_sent_at?: string | null;
+  email_change_sent_at?: string | null;
+  new_email?: string | null;
+  invited_at?: string | null;
+  action_link?: string | null;
+  last_sign_in_at?: string | null;
+  is_anonymous?: boolean;
+}
+
+export interface Session {
+  access_token: string;
+  token_type?: string;
+  expires_in?: number;
+  expires_at?: number;
+  user?: User;
+}
+
+export interface CreateUserData {
   name: string;
   email: string;
   password?: string;
@@ -22,6 +56,10 @@ export interface Booking {
   userName: string;
   comments: Comment[];
   createdAt?: string;
+  sequenceFileKey?: string | null;
+  sequenceFileName?: string | null;
+  sequenceFileSize?: number | null;
+  sequenceFileUploadedAt?: string | null;
 }
 
 export interface Instrument {

@@ -1,0 +1,22 @@
+
+# Production override for docker-compose
+version: '3.8'
+
+services:
+  lab-management:
+    environment:
+      - NODE_ENV=production
+      # Add your production environment variables here
+      # - VITE_SUPABASE_URL=https://your-supabase-instance.com
+      # - VITE_SUPABASE_ANON_KEY=your-anon-key
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M

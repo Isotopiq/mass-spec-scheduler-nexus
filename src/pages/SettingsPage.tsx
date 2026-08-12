@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -25,12 +24,12 @@ interface UserSettings {
 const SettingsPage: React.FC = () => {
   const { toast } = useToast();
   
-  // Initialize settings from localStorage or default values
+  // Initialize settings from localStorage or default values (with email notifications enabled by default)
   const [settings, setSettings] = useState<UserSettings>(() => {
     const savedSettings = localStorage.getItem('mslab_user_settings');
     return savedSettings ? JSON.parse(savedSettings) : {
-      emailNotifications: true,
-      bookingReminders: true,
+      emailNotifications: true, // Default to enabled
+      bookingReminders: true,   // Default to enabled
       darkMode: false,
       language: "en",
       timeZone: "UTC",
@@ -70,7 +69,7 @@ const SettingsPage: React.FC = () => {
             <CardHeader>
               <CardTitle>Notification Preferences</CardTitle>
               <CardDescription>
-                Configure how you want to receive notifications
+                Configure how you want to receive notifications. Email notifications are enabled by default.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">

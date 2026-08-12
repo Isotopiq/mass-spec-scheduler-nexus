@@ -16,18 +16,19 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../components/ui/tabs";
 import { Button } from "../components/ui/button";
-import { useBooking } from "../contexts/BookingContext";
+import { useOptimizedBooking } from "../contexts/OptimizedBookingContext";
 import { exportAnalyticsToPDF } from "../utils/pdfExport";
 
 const AnalyticsPage: React.FC = () => {
-  const { statistics } = useBooking();
+  const { statistics } = useOptimizedBooking();
 
   // Colors for the charts
   const COLORS = ["#9b87f5", "#7E69AB", "#6E59A5", "#D6BCFA", "#E5DEFF"];
 
-  // Format data for user booking pie chart
+  // Format data for user booking pie chart with shortened names
   const userPieData = statistics.userBookings.map(item => ({
-    name: item.userName,
+    name: item.userName.length > 10 ? item.userName.substring(0, 10) + "..." : item.userName,
+    fullName: item.userName,
     value: item.bookingCount
   }));
 
@@ -45,6 +46,30 @@ const AnalyticsPage: React.FC = () => {
   
   const handleExportPDF = () => {
     exportAnalyticsToPDF(statistics, "MSLab Analytics Report");
+  };
+
+  // Custom label function for pie chart to prevent overlap
+  const renderCustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent, index }: any) => {
+    if (percent < 0.05) return null; // Don't show labels for slices smaller than 5%
+    
+    const RADIAN = Math.PI / 180;
+    const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
+    const x = cx + radius * Math.cos(-midAngle * RADIAN);
+    const y = cy + radius * Math.sin(-midAngle * RADIAN);
+
+    return (
+      <text 
+        x={x} 
+        y={y} 
+        fill="white" 
+        textAnchor={x > cx ? 'start' : 'end'} 
+        dominantBaseline="central"
+        fontSize="12"
+        fontWeight="bold"
+      >
+        {`${(percent * 100).toFixed(0)}%`}
+      </text>
+    );
   };
 
   return (
@@ -108,8 +133,8 @@ const AnalyticsPage: React.FC = () => {
                       {statistics.instrumentUsage.length > 0 && (
                         <div>
                           <p className="text-xl font-semibold">{statistics.instrumentUsage[0].instrumentName}</p>
-                          <p className="text-sm">{statistics.instrumentUsage[0].bookingCount} bookings</p>
-                          <p className="text-sm">{statistics.instrumentUsage[0].totalHours.toFixed(1)} hours</p>
+                          <p className="text-sm text-green-600 font-medium">{statistics.instrumentUsage[0].totalHours.toFixed(1)} total hours</p>
+                          <p className="text-sm text-muted-foreground">{statistics.instrumentUsage[0].bookingCount} bookings</p>
                         </div>
                       )}
                     </div>
@@ -127,13 +152,13 @@ const AnalyticsPage: React.FC = () => {
                           fill="#8884d8"
                           dataKey="hours"
                           nameKey="name"
-                          label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                          label={renderCustomLabel}
                         >
                           {instrumentBarData.map((entry, index) => (
                             <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                           ))}
                         </Pie>
-                        <Tooltip />
+                        <Tooltip formatter={(value) => [`${value} hours`, "Usage"]} />
                       </PieChart>
                     </ResponsiveContainer>
                   </div>
@@ -156,18 +181,23 @@ const AnalyticsPage: React.FC = () => {
                       data={userPieData}
                       cx="50%"
                       cy="50%"
-                      labelLine={true}
+                      labelLine={false}
                       outerRadius={100}
                       fill="#8884d8"
                       dataKey="value"
                       nameKey="name"
-                      label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                      label={renderCustomLabel}
                     >
                       {userPieData.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip />
+                    <Tooltip 
+                      formatter={(value, name, props) => [
+                        `${value} bookings`, 
+                        props.payload.fullName
+                      ]} 
+                    />
                   </PieChart>
                 </ResponsiveContainer>
               </CardContent>

@@ -9,6 +9,8 @@ import { Button } from "../ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "../ui/form";
 import { Input } from "../ui/input";
 import { useAuth } from "../../contexts/AuthContext";
+import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 const formSchema = z.object({
   email: z.string().email({ message: "Please enter a valid email" }),
@@ -19,7 +21,6 @@ type FormValues = z.infer<typeof formSchema>;
 
 const LoginForm: React.FC = () => {
   const { login } = useAuth();
-  const { toast } = useToast();
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
 
@@ -30,28 +31,24 @@ const LoginForm: React.FC = () => {
       password: "",
     },
   });
+  
 
   const onSubmit = async (values: FormValues) => {
     try {
       setIsLoading(true);
-      console.log("Attempting login with:", values.email); // Debug
-      const success = await login(values.email, values.password);
-      if (success) {
-        toast({
-          title: "Login successful!",
-          description: "Welcome back to the Mass Spec Lab",
-        });
-        // Explicitly navigate to dashboard after successful login
-        navigate("/", { replace: true });
-      } else {
-        // The toast for failure is handled in the AuthContext
-      }
+      console.log("Attempting login with:", values.email);
+      await login(values.email, values.password);
+      console.log("Login successful");
+      
+      toast.success("Login successful! Welcome back to the Mass Spec Lab");
+      
+      // Navigate after a short delay to ensure auth state is properly updated
+      setTimeout(() => {
+        navigate("/dashboard", { replace: true });
+      }, 500);
     } catch (error) {
-      toast({
-        title: "Login failed",
-        description: error instanceof Error ? error.message : "Please check your credentials",
-        variant: "destructive",
-      });
+      console.error("Login error:", error);
+      toast.error(error instanceof Error ? error.message : "Please check your credentials");
     } finally {
       setIsLoading(false);
     }
@@ -87,7 +84,12 @@ const LoginForm: React.FC = () => {
           )}
         />
         <Button className="w-full" type="submit" disabled={isLoading}>
-          {isLoading ? "Logging in..." : "Login"}
+          {isLoading ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 
+              Logging in...
+            </>
+          ) : "Login"}
         </Button>
       </form>
     </Form>

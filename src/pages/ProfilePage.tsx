@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+
+import React, { useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -14,12 +15,12 @@ import { useAuth } from "../contexts/AuthContext";
 import { Badge } from "@/components/ui/badge";
 import PasswordDialog from "../components/admin/PasswordDialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Upload, Image } from "lucide-react";
-import { useToast } from "../hooks/use-toast";
+import { Upload, Loader2 } from "lucide-react";
+import { toast } from "sonner";
+import { supabase } from "../integrations/supabase/client";
 
 const ProfilePage: React.FC = () => {
   const { user, updateUserProfile, updateUserPassword } = useAuth();
-  const { toast } = useToast();
   const [name, setName] = useState(user?.name || "");
   const [email, setEmail] = useState(user?.email || "");
   const [department, setDepartment] = useState(user?.department || "");
@@ -32,29 +33,66 @@ const ProfilePage: React.FC = () => {
   );
   const [newPassword, setNewPassword] = useState("");
   const [isSubmittingPassword, setIsSubmittingPassword] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
 
-  if (!user) {
-    return (
-      <div className="container py-8 text-center">
-        <h1 className="text-2xl font-bold mb-4">Please log in to view your profile</h1>
-      </div>
-    );
-  }
-
-  const handleSaveProfile = async () => {
+  const handleSaveProfile = useCallback(async () => {
     if (!user) return;
 
     try {
       setIsUpdating(true);
       
-      // Handle file upload
+      // Handle file upload to Supabase storage
       let profileImageUrl = user.profileImage;
       
       if (selectedFile) {
-        // Normally we'd upload to a server, but for this demo, we'll create a data URL
-        profileImageUrl = await readFileAsDataURL(selectedFile);
+        setIsUploadingImage(true);
+        const fileExt = selectedFile.name.split('.').pop();
+        const fileName = `${user.id}/profile.${fileExt}`;
+        
+        try {
+          // Upload to Supabase storage
+          const { error: uploadError } = await supabase.storage
+            .from('profile-images')
+            .upload(fileName, selectedFile, {
+              upsert: true
+            });
+
+          if (uploadError) {
+            throw uploadError;
+          }
+
+          // Get public URL with timestamp to prevent caching
+          const { data: urlData } = supabase.storage
+            .from('profile-images')
+            .getPublicUrl(fileName);
+
+          profileImageUrl = `${urlData.publicUrl}?t=${Date.now()}`;
+        } catch (uploadError) {
+          console.error("Upload error:", uploadError);
+          toast.error("Failed to upload profile image. Saving other changes.");
+        } finally {
+          setIsUploadingImage(false);
+        }
       }
 
+      // Update profile in database with correct field name
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({
+          name,
+          email,
+          department: department || null,
+          profile_image: profileImageUrl
+        })
+        .eq('id', user.id);
+
+      if (updateError) {
+        console.error('Error updating profile in database:', updateError);
+        toast.error("Failed to update profile in database.");
+        return;
+      }
+
+      // Update user profile in context
       await updateUserProfile({
         ...user,
         name,
@@ -64,41 +102,29 @@ const ProfilePage: React.FC = () => {
       });
       
       setIsEditing(false);
-      toast({
-        title: "Profile updated",
-        description: "Your profile information has been updated successfully.",
-      });
+      setSelectedFile(null);
+      setImagePreview(profileImageUrl);
+      toast.success("Your profile information has been updated successfully.");
     } catch (error) {
-      toast({
-        title: "Update failed",
-        description: "There was a problem updating your profile.",
-        variant: "destructive",
-      });
+      console.error("Error updating profile:", error);
+      toast.error("There was a problem updating your profile.");
     } finally {
       setIsUpdating(false);
     }
-  };
+  }, [user, name, email, department, selectedFile, updateUserProfile]);
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       // Validate file type
       if (!file.type.startsWith('image/')) {
-        toast({
-          title: "Invalid file type",
-          description: "Please upload an image file (JPEG, PNG, etc.).",
-          variant: "destructive",
-        });
+        toast.error("Please upload an image file (JPEG, PNG, etc.).");
         return;
       }
 
       // Validate file size (max 5MB)
       if (file.size > 5 * 1024 * 1024) {
-        toast({
-          title: "File too large",
-          description: "Please upload an image smaller than 5MB.",
-          variant: "destructive",
-        });
+        toast.error("Please upload an image smaller than 5MB.");
         return;
       }
 
@@ -111,58 +137,52 @@ const ProfilePage: React.FC = () => {
       };
       reader.readAsDataURL(file);
     }
-  };
+  }, []);
 
-  const handleChangePassword = async () => {
+  const handleChangePassword = useCallback(async () => {
     if (!newPassword.trim()) {
-      toast({
-        title: "Password not updated",
-        description: "Please provide a valid password.",
-        variant: "destructive"
-      });
+      toast.error("Please provide a valid password.");
       return;
     }
 
     if (newPassword.length < 6) {
-      toast({
-        title: "Password too short",
-        description: "Password must be at least 6 characters long.",
-        variant: "destructive"
-      });
+      toast.error("Password must be at least 6 characters long.");
       return;
     }
+
+    if (!user) return;
 
     setIsSubmittingPassword(true);
     
     try {
       await updateUserPassword(user.id, newPassword);
       
-      toast({
-        title: "Password updated",
-        description: "Your password has been updated successfully."
-      });
+      toast.success("Your password has been updated successfully.");
       setIsPasswordDialogOpen(false);
       setNewPassword("");
     } catch (error) {
-      toast({
-        title: "Error updating password",
-        description: "There was an error updating the password.",
-        variant: "destructive"
-      });
+      toast.error("There was an error updating the password.");
     } finally {
       setIsSubmittingPassword(false);
     }
-  };
+  }, [user, newPassword, updateUserPassword]);
 
-  // Helper function to read a file as data URL
-  const readFileAsDataURL = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => reject(new Error("Failed to read file"));
-      reader.readAsDataURL(file);
-    });
-  };
+  const handleCancelEdit = useCallback(() => {
+    setIsEditing(false);
+    setName(user?.name || "");
+    setEmail(user?.email || "");
+    setDepartment(user?.department || "");
+    setImagePreview(user?.profileImage || null);
+    setSelectedFile(null);
+  }, [user]);
+
+  if (!user) {
+    return (
+      <div className="container py-8 text-center">
+        <h1 className="text-2xl font-bold mb-4">Please log in to view your profile</h1>
+      </div>
+    );
+  }
 
   return (
     <div className="container py-6">
@@ -215,7 +235,11 @@ const ProfilePage: React.FC = () => {
               <Label>Profile Image</Label>
               <div className="flex items-center space-x-4">
                 <Avatar className="w-20 h-20">
-                  <AvatarImage src={imagePreview || undefined} alt={name} />
+                  <AvatarImage 
+                    src={imagePreview || undefined} 
+                    alt={name}
+                    key={imagePreview} // Force re-render when image changes
+                  />
                   <AvatarFallback>{name.charAt(0).toUpperCase()}</AvatarFallback>
                 </Avatar>
                 {isEditing && (
@@ -226,12 +250,23 @@ const ProfilePage: React.FC = () => {
                       accept="image/*"
                       onChange={handleFileChange}
                       className="hidden"
+                      disabled={isUploadingImage}
                     />
                     <Label 
                       htmlFor="profileImage" 
-                      className="inline-flex items-center px-4 py-2 bg-gray-100 border border-gray-300 rounded-md text-sm font-medium cursor-pointer hover:bg-gray-200"
+                      className="inline-flex items-center px-4 py-2 bg-gray-100 border border-gray-300 rounded-md text-sm font-medium cursor-pointer hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <Upload className="h-4 w-4 mr-2" /> Choose photo
+                      {isUploadingImage ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Uploading...
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="h-4 w-4 mr-2" />
+                          Choose photo
+                        </>
+                      )}
                     </Label>
                     {selectedFile && (
                       <p className="text-xs text-muted-foreground">{selectedFile.name}</p>
@@ -246,20 +281,20 @@ const ProfilePage: React.FC = () => {
               <div className="flex space-x-2">
                 <Button
                   variant="ghost"
-                  onClick={() => {
-                    setIsEditing(false);
-                    setName(user?.name || "");
-                    setEmail(user?.email || "");
-                    setDepartment(user?.department || "");
-                    setImagePreview(user?.profileImage || null);
-                    setSelectedFile(null);
-                  }}
+                  onClick={handleCancelEdit}
                   disabled={isUpdating}
                 >
                   Cancel
                 </Button>
-                <Button onClick={handleSaveProfile} disabled={isUpdating}>
-                  {isUpdating ? "Saving..." : "Save Changes"}
+                <Button onClick={handleSaveProfile} disabled={isUpdating || isUploadingImage}>
+                  {isUpdating ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    "Save Changes"
+                  )}
                 </Button>
               </div>
             ) : (

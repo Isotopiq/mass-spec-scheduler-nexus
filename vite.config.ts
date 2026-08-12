@@ -7,7 +7,11 @@ import { componentTagger } from "lovable-tagger";
 export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
-    port: 8080,
+    port: 41784,
+    proxy: {
+      '/api': 'http://localhost:3000',
+      '/uploads': 'http://localhost:3000',
+    },
   },
   plugins: [
     react(),
@@ -17,6 +21,11 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // Univer expects this deep path which opentype.js 1.3.5 ships as opentype.mjs
+      "opentype.js/dist/opentype.module.js": path.resolve(
+        __dirname,
+        "./node_modules/opentype.js/dist/opentype.mjs",
+      ),
     },
   },
 }));
