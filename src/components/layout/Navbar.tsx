@@ -1,5 +1,5 @@
 
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Button } from "../ui/button";
 import { useAuth } from "../../contexts/AuthContext";
@@ -13,7 +13,9 @@ import {
   Home,
   Beaker,
   BookOpen,
-  ClipboardList
+  ClipboardList,
+  Menu,
+  X
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -31,6 +33,7 @@ const Navbar: React.FC = () => {
   const { user, logout } = useAuth();
   const { settings } = useAppSettings();
   const location = useLocation();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -63,13 +66,26 @@ const Navbar: React.FC = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16">
           <div className="flex items-center space-x-8">
+            <div className="md:hidden">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                aria-label="Toggle navigation menu"
+                aria-expanded={mobileMenuOpen}
+              >
+                {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+                <span className="sr-only">Toggle navigation menu</span>
+              </Button>
+            </div>
+
             <Link to="/" className="flex items-center">
               <img 
                 src={settings?.logo_url || DEFAULT_LOGO} 
                 alt="TeSlab Lab Logo" 
                 className="h-8 w-auto object-contain"
               />
-              <span className="ml-2 text-xl font-bold text-gray-900">
+              <span className="ml-2 text-xl font-bold text-gray-900 hidden sm:inline">
                 MSLab Scheduler
               </span>
             </Link>
@@ -164,6 +180,49 @@ const Navbar: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {mobileMenuOpen && (
+        <div className="absolute top-16 left-0 w-full bg-white border-b shadow-lg px-4 py-4 md:hidden z-50">
+          <div className="flex flex-col space-y-2">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={`inline-flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                    isActive(item.path)
+                      ? "bg-mslab-100 text-mslab-700"
+                      : "text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+                  }`}
+                >
+                  <Icon className="h-4 w-4 mr-2" />
+                  {item.label}
+                </Link>
+              );
+            })}
+            {user.role === "admin" && adminNavItems.map((item) => {
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={`inline-flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                    isActive(item.path)
+                      ? "bg-mslab-100 text-mslab-700"
+                      : "text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+                  }`}
+                >
+                  <Icon className="h-4 w-4 mr-2" />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </nav>
   );
 };

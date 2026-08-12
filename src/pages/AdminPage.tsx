@@ -46,7 +46,7 @@ const AdminPage: React.FC = () => {
       )}
       
       <Tabs value={activeTab} onValueChange={handleTabChange}>
-        <TabsList className="grid grid-cols-11 w-full max-w-7xl">
+        <TabsList className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-11 gap-2 w-full max-w-7xl h-auto p-1">
           <TabsTrigger value="pending-bookings" className="px-2 py-2 text-sm" onClick={() => setActiveTab("pending-bookings")}>Pending</TabsTrigger>
           <TabsTrigger value="booking-history" className="px-2 py-2 text-sm" onClick={() => setActiveTab("booking-history")}>History</TabsTrigger>
           <TabsTrigger value="users" className="px-2 py-2 text-sm" onClick={() => setActiveTab("users")}>Users</TabsTrigger>

@@ -605,7 +605,13 @@ app.post('/api/auth/reset-password', async (req, res) => {
 
     const settings = await pool.query('SELECT * FROM smtp_settings LIMIT 1');
     if (settings.rows.length) {
-      const resetUrl = `${redirectTo || ''}?token=${token}`;
+      let resetUrl;
+      if (redirectTo) {
+        resetUrl = redirectTo.includes('?') ? `${redirectTo}&token=${token}` : `${redirectTo}?token=${token}`;
+      } else {
+        const origin = req.get('origin') || req.headers.referer || `http://localhost:${PORT}`;
+        resetUrl = `${origin}/reset-password?token=${token}`;
+      }
       await sendEmailWithTemplate({ to: email, subject: 'Password reset', htmlContent: `<p>Reset your password: <a href="${resetUrl}">${resetUrl}</a></p>`, templateType: null, variables: {} });
     }
     res.json({ data: {}, error: null });
@@ -633,6 +639,24 @@ app.post('/api/auth/admin-update-password', requireAuth, requireAdmin, async (re
     const hash = await bcrypt.hash(password, 10);
     await pool.query('UPDATE profiles SET password_hash = $1 WHERE id = $2', [hash, userId]);
     res.json({ data: {}, error: null });
+  } catch (err) {
+    res.status(400).json({ data: null, error: { message: err.message } });
+  }
+});
+
+app.post('/api/auth/reset-password-confirm', async (req, res) => {
+  try {
+    const { token, password } = req.body;
+    if (!token || !password) throw new Error('Token and password required');
+    if (password.length < 6) throw new Error('Password must be at least 6 characters');
+    const hash = crypto.createHash('sha256').update(token).digest('hex');
+    const { rows } = await pool.query('SELECT user_id FROM password_reset_tokens WHERE token_hash = $1 AND expires_at > now()', [hash]);
+    if (!rows.length) throw new Error('Invalid or expired reset token');
+    const userId = rows[0].user_id;
+    const passwordHash = await bcrypt.hash(password, 10);
+    await pool.query('UPDATE profiles SET password_hash = $1 WHERE id = $2', [passwordHash, userId]);
+    await pool.query('DELETE FROM password_reset_tokens WHERE user_id = $1', [userId]);
+    res.json({ data: { success: true }, error: null });
   } catch (err) {
     res.status(400).json({ data: null, error: { message: err.message } });
   }

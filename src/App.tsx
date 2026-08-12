@@ -19,6 +19,7 @@ import AnalyticsPage from "./pages/AnalyticsPage";
 import ProfilePage from "./pages/ProfilePage";
 import SettingsPage from "./pages/SettingsPage";
 import LoginPage from "./pages/LoginPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
 import NotFound from "./pages/NotFound";
 
 const DEFAULT_FAVICON = "/lovable-uploads/c9351e76-a090-4113-bffa-7ee6800178c0.png";
@@ -58,6 +59,7 @@ function App() {
             <OptimizedBookingProvider>
               <Routes>
                 <Route path="/login" element={<LoginPage />} />
+                <Route path="/reset-password" element={<ResetPasswordPage />} />
                 <Route path="/" element={<AppLayout />}>
                   <Route index element={<Index />} />
                   <Route path="dashboard" element={<Dashboard />} />
