@@ -25,6 +25,7 @@ interface AuthContextType {
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const API_URL = import.meta.env.VITE_API_URL || '';
+const AUTH_USER_KEY = 'standalone_auth_user';
 
 const profileFromRow = (row: any): Profile => ({
   id: row.id,
@@ -212,6 +213,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const updateUserProfile = (updatedUser: User) => {
     setUser(updatedUser);
     setUsers(users.map(u => u.id === updatedUser.id ? updatedUser : u));
+    try {
+      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(updatedUser));
+    } catch {
+      // ignore storage errors
+    }
   };
 
   const updateUserPassword = async (userId: string, newPassword: string) => {

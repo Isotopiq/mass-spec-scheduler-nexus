@@ -25,7 +25,6 @@ const ProfilePage: React.FC = () => {
   const [email, setEmail] = useState(user?.email || "");
   const [department, setDepartment] = useState(user?.department || "");
   const [isPasswordDialogOpen, setIsPasswordDialogOpen] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(
@@ -167,8 +166,7 @@ const ProfilePage: React.FC = () => {
     }
   }, [user, newPassword, updateUserPassword]);
 
-  const handleCancelEdit = useCallback(() => {
-    setIsEditing(false);
+  const handleRevert = useCallback(() => {
     setName(user?.name || "");
     setEmail(user?.email || "");
     setDepartment(user?.department || "");
@@ -202,7 +200,7 @@ const ProfilePage: React.FC = () => {
                 id="name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                disabled={!isEditing || isUpdating}
+                disabled={isUpdating}
               />
             </div>
             <div className="space-y-2">
@@ -212,7 +210,7 @@ const ProfilePage: React.FC = () => {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                disabled={!isEditing || isUpdating}
+                disabled={isUpdating}
               />
             </div>
             <div className="space-y-2">
@@ -221,7 +219,7 @@ const ProfilePage: React.FC = () => {
                 id="department"
                 value={department}
                 onChange={(e) => setDepartment(e.target.value)}
-                disabled={!isEditing || isUpdating}
+                disabled={isUpdating}
                 placeholder="e.g., Research, Chemistry, Biology"
               />
             </div>
@@ -242,64 +240,58 @@ const ProfilePage: React.FC = () => {
                   />
                   <AvatarFallback>{name.charAt(0).toUpperCase()}</AvatarFallback>
                 </Avatar>
-                {isEditing && (
-                  <div className="space-y-2">
-                    <Input
-                      id="profileImage"
-                      type="file"
-                      accept="image/*"
-                      onChange={handleFileChange}
-                      className="hidden"
-                      disabled={isUploadingImage}
-                    />
-                    <Label 
-                      htmlFor="profileImage" 
-                      className="inline-flex items-center px-4 py-2 bg-gray-100 border border-gray-300 rounded-md text-sm font-medium cursor-pointer hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isUploadingImage ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Uploading...
-                        </>
-                      ) : (
-                        <>
-                          <Upload className="h-4 w-4 mr-2" />
-                          Choose photo
-                        </>
-                      )}
-                    </Label>
-                    {selectedFile && (
-                      <p className="text-xs text-muted-foreground">{selectedFile.name}</p>
+                <div className="space-y-2">
+                  <Input
+                    id="profileImage"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileChange}
+                    className="hidden"
+                    disabled={isUploadingImage}
+                  />
+                  <Label
+                    htmlFor="profileImage"
+                    className="inline-flex items-center px-4 py-2 bg-gray-100 border border-gray-300 rounded-md text-sm font-medium cursor-pointer hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isUploadingImage ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Uploading...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="h-4 w-4 mr-2" />
+                        Choose photo
+                      </>
                     )}
-                  </div>
-                )}
+                  </Label>
+                  {selectedFile && (
+                    <p className="text-xs text-muted-foreground">{selectedFile.name}</p>
+                  )}
+                </div>
               </div>
             </div>
           </CardContent>
           <CardFooter className="flex justify-between">
-            {isEditing ? (
-              <div className="flex space-x-2">
-                <Button
-                  variant="ghost"
-                  onClick={handleCancelEdit}
-                  disabled={isUpdating}
-                >
-                  Cancel
-                </Button>
-                <Button onClick={handleSaveProfile} disabled={isUpdating || isUploadingImage}>
-                  {isUpdating ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    "Save Changes"
-                  )}
-                </Button>
-              </div>
-            ) : (
-              <Button onClick={() => setIsEditing(true)}>Edit Profile</Button>
-            )}
+            <div className="flex space-x-2">
+              <Button
+                variant="ghost"
+                onClick={handleRevert}
+                disabled={isUpdating || isUploadingImage}
+              >
+                Revert
+              </Button>
+              <Button onClick={handleSaveProfile} disabled={isUpdating || isUploadingImage}>
+                {isUpdating ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  "Save Changes"
+                )}
+              </Button>
+            </div>
           </CardFooter>
         </Card>
 
