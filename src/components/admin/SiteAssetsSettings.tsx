@@ -6,6 +6,7 @@ import { useAppSettings } from "../../hooks/useAppSettings";
 import { supabase } from "../../integrations/supabase/client";
 import { toast } from "sonner";
 import { Loader2, Upload, Image as ImageIcon } from "lucide-react";
+import { ImageCropDialog } from "@/components/ui/ImageCropDialog";
 
 const DEFAULT_LOGO = "/lovable-uploads/40965317-613a-41b7-bc11-d9e8b6cba9ae.png";
 const DEFAULT_FAVICON = "/lovable-uploads/c9351e76-a090-4113-bffa-7ee6800178c0.png";
@@ -13,6 +14,10 @@ const DEFAULT_FAVICON = "/lovable-uploads/c9351e76-a090-4113-bffa-7ee6800178c0.p
 const SiteAssetsSettings: React.FC = () => {
   const { settings, isLoading, reload } = useAppSettings();
   const [saving, setSaving] = useState<string | null>(null);
+  const [cropOpen, setCropOpen] = useState(false);
+  const [cropSrc, setCropSrc] = useState<string | null>(null);
+  const [cropMime, setCropMime] = useState<string>("");
+  const [cropKey, setCropKey] = useState<"logo_url" | "favicon_url" | null>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const faviconInputRef = useRef<HTMLInputElement>(null);
 
@@ -54,14 +59,30 @@ const SiteAssetsSettings: React.FC = () => {
     }
   };
 
-  const handleFileChange = (key: "logo_url" | "favicon_url") => async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (key: "logo_url" | "favicon_url") => (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith("image/")) {
       toast.error("Please upload an image file");
       return;
     }
-    await uploadAsset(file, key);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setCropSrc(event.target?.result as string);
+      setCropMime(file.type);
+      setCropKey(key);
+      setCropOpen(true);
+    };
+    reader.readAsDataURL(file);
+
+    e.target.value = "";
+  };
+
+  const handleCroppedAsset = async (file: File) => {
+    if (!cropKey) return;
+    setCropOpen(false);
+    await uploadAsset(file, cropKey);
   };
 
   if (isLoading || !settings) {
@@ -148,6 +169,17 @@ const SiteAssetsSettings: React.FC = () => {
           </Button>
         </div>
       </CardContent>
+
+      <ImageCropDialog
+        open={cropOpen}
+        onOpenChange={setCropOpen}
+        imageSrc={cropSrc}
+        title={`Crop ${cropKey === "favicon_url" ? "favicon" : "logo"}`}
+        aspect={cropKey === "favicon_url" ? 1 : 16 / 9}
+        cropShape="rect"
+        mimeType={cropMime || undefined}
+        onCropped={handleCroppedAsset}
+      />
     </Card>
   );
 };

@@ -18,6 +18,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Upload, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "../integrations/supabase/client";
+import { ImageCropDialog } from "@/components/ui/ImageCropDialog";
 
 const ProfilePage: React.FC = () => {
   const { user, updateUserProfile, updateUserPassword } = useAuth();
@@ -33,6 +34,9 @@ const ProfilePage: React.FC = () => {
   const [newPassword, setNewPassword] = useState("");
   const [isSubmittingPassword, setIsSubmittingPassword] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [cropOpen, setCropOpen] = useState(false);
+  const [cropSrc, setCropSrc] = useState<string | null>(null);
+  const [cropMime, setCropMime] = useState<string>("");
 
   const handleSaveProfile = useCallback(async () => {
     if (!user) return;
@@ -99,8 +103,7 @@ const ProfilePage: React.FC = () => {
         department,
         profileImage: profileImageUrl
       });
-      
-      setIsEditing(false);
+
       setSelectedFile(null);
       setImagePreview(profileImageUrl);
       toast.success("Your profile information has been updated successfully.");
@@ -114,28 +117,33 @@ const ProfilePage: React.FC = () => {
 
   const handleFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file) {
-      // Validate file type
-      if (!file.type.startsWith('image/')) {
-        toast.error("Please upload an image file (JPEG, PNG, etc.).");
-        return;
-      }
+    if (!file) return;
 
-      // Validate file size (max 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        toast.error("Please upload an image smaller than 5MB.");
-        return;
-      }
-
-      setSelectedFile(file);
-      
-      // Create a preview
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setImagePreview(e.target?.result as string);
-      };
-      reader.readAsDataURL(file);
+    if (!file.type.startsWith('image/')) {
+      toast.error("Please upload an image file (JPEG, PNG, etc.).");
+      return;
     }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Please upload an image smaller than 5MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      setCropSrc(e.target?.result as string);
+      setCropMime(file.type);
+      setCropOpen(true);
+    };
+    reader.readAsDataURL(file);
+
+    // Reset the input so the same file can be selected again
+    event.target.value = "";
+  }, []);
+
+  const handleCroppedImage = useCallback((file: File) => {
+    setSelectedFile(file);
+    setImagePreview(URL.createObjectURL(file));
   }, []);
 
   const handleChangePassword = useCallback(async () => {
@@ -328,6 +336,17 @@ const ProfilePage: React.FC = () => {
         newPassword={newPassword}
         setNewPassword={setNewPassword}
         isSubmitting={isSubmittingPassword}
+      />
+
+      <ImageCropDialog
+        open={cropOpen}
+        onOpenChange={setCropOpen}
+        imageSrc={cropSrc}
+        title="Crop profile photo"
+        aspect={1}
+        cropShape="round"
+        mimeType={cropMime || undefined}
+        onCropped={handleCroppedImage}
       />
     </div>
   );
