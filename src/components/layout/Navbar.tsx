@@ -26,6 +26,7 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
+import { NotificationsDropdown } from "./NotificationsDropdown";
 
 const DEFAULT_LOGO = "/lovable-uploads/40965317-613a-41b7-bc11-d9e8b6cba9ae.png";
 
@@ -130,6 +131,7 @@ const Navbar: React.FC = () => {
           </div>
 
           <div className="flex items-center space-x-4">
+            <NotificationsDropdown />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="relative h-8 w-8 rounded-full">

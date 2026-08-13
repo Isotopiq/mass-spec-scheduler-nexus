@@ -18,6 +18,7 @@ import AdminPage from "./pages/AdminPage";
 import AnalyticsPage from "./pages/AnalyticsPage";
 import ProfilePage from "./pages/ProfilePage";
 import SettingsPage from "./pages/SettingsPage";
+import NotificationsPage from "./pages/NotificationsPage";
 import LoginPage from "./pages/LoginPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import NotFound from "./pages/NotFound";
@@ -70,6 +71,7 @@ function App() {
                   <Route path="analytics" element={<AnalyticsPage />} />
                   <Route path="profile" element={<ProfilePage />} />
                   <Route path="settings" element={<SettingsPage />} />
+                  <Route path="notifications" element={<NotificationsPage />} />
                 </Route>
                 <Route path="*" element={<NotFound />} />
               </Routes>

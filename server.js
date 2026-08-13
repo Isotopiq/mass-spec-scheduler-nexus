@@ -33,10 +33,12 @@ const ALLOWED_TABLES = {
   booking_swaps: { select: 'admin', insert: 'authenticated', update: 'admin', delete: 'admin', restrictedColumns: [] },
   booking_waitlist: { select: 'owner-or-admin', insert: 'authenticated', update: 'owner-or-admin', delete: 'owner-or-admin', restrictedColumns: [] },
   comments: { select: 'all', insert: 'authenticated', update: 'owner-or-admin', delete: 'owner-or-admin', restrictedColumns: [] },
+  email_digests: { select: 'owner-or-admin', insert: 'authenticated', update: 'owner-or-admin', delete: 'owner-or-admin', restrictedColumns: [] },
   email_templates: { select: 'all', insert: 'admin', update: 'admin', delete: 'admin', restrictedColumns: [] },
   instruments: { select: 'all', insert: 'admin', update: 'admin', delete: 'admin', restrictedColumns: [] },
   instrument_maintenance: { select: 'all', insert: 'admin', update: 'admin', delete: 'admin', restrictedColumns: [] },
   maintenance_history: { select: 'all', insert: 'admin', update: 'admin', delete: 'admin', restrictedColumns: [] },
+  notifications: { select: 'owner-or-admin', insert: 'admin', update: 'owner-or-admin', delete: 'owner-or-admin', restrictedColumns: [] },
   profiles: { select: 'all', insert: 'admin', update: 'owner-or-admin', delete: 'admin', restrictedColumns: ['password_hash'] },
   schedule_delays: { select: 'all', insert: 'admin', update: 'admin', delete: 'admin', restrictedColumns: [] },
   schedule_delay_bookings: { select: 'all', insert: 'admin', update: 'admin', delete: 'admin', restrictedColumns: [] },
@@ -132,6 +134,18 @@ function buildWhere(filters, table, user, action, values, paramStart = 1) {
     }
   }
   if (table === 'comments' && (action === 'update' || action === 'delete')) {
+    if (user.role !== 'admin') {
+      conditions.push(pgFormat('"user_id" = $%s', paramIdx++));
+      params.push(user.id);
+    }
+  }
+  if (table === 'notifications' && (action === 'update' || action === 'delete' || action === 'select')) {
+    if (user.role !== 'admin') {
+      conditions.push(pgFormat('"user_id" = $%s', paramIdx++));
+      params.push(user.id);
+    }
+  }
+  if (table === 'email_digests' && (action === 'update' || action === 'delete' || action === 'select')) {
     if (user.role !== 'admin') {
       conditions.push(pgFormat('"user_id" = $%s', paramIdx++));
       params.push(user.id);
@@ -399,6 +413,7 @@ async function handleRestQuery(req, res) {
       params.push(...whereParams);
       sql = pgFormat('UPDATE "%I" SET %s %s', table, setClauses.join(', '), where);
       if (columns) sql += ' RETURNING ' + sanitizeColumns(columns, table);
+      else sql += ' RETURNING *';
     } else if (action === 'delete') {
       const { where, params: whereParams } = buildWhere(filters, table, user, action, null);
       params = whereParams;
@@ -407,6 +422,7 @@ async function handleRestQuery(req, res) {
     }
 
     let preDeleteBookings = [];
+    let preUpdateBookings = [];
     if (table === 'bookings' && action === 'delete') {
       try {
         const { where: preWhere, params: preParams } = buildWhere(filters, table, user, 'select', null, 1);
@@ -414,6 +430,15 @@ async function handleRestQuery(req, res) {
         preDeleteBookings = preResult.rows;
       } catch (e) {
         console.error('pre-delete booking fetch error:', e);
+      }
+    }
+    if (table === 'bookings' && action === 'update' && values?.status) {
+      try {
+        const { where: preWhere, params: preParams } = buildWhere(filters, table, user, 'select', null, 1);
+        const preResult = await pool.query(`SELECT id, user_id, instrument_id, start_time, end_time, status FROM "${table}" ${preWhere}`, preParams);
+        preUpdateBookings = preResult.rows;
+      } catch (e) {
+        console.error('pre-update booking status fetch error:', e);
       }
     }
 
@@ -424,6 +449,13 @@ async function handleRestQuery(req, res) {
     if (table === 'bookings' && action === 'delete') {
       for (const b of preDeleteBookings) {
         autoFillWaitlist(b.instrument_id, b.start_time, b.end_time);
+      }
+    }
+
+    if (table === 'bookings' && action === 'update') {
+      for (const b of rows) {
+        const prev = preUpdateBookings.find(p => p.id === b.id);
+        sendBookingStatusNotifications(b, prev?.status);
       }
     }
 
@@ -572,6 +604,134 @@ function smtpTransport(settings) {
   });
 }
 
+async function getLogoAndSiteUrl() {
+  const settings = await getSettings();
+  return {
+    logoUrl: settings?.logo_url || settings?.favicon_url || '',
+    siteUrl: process.env.SITE_URL || `http://localhost:${PORT || 3000}`
+  };
+}
+
+async function createNotification({ userId, type = 'info', title, message, link }) {
+  try {
+    await pool.query(
+      'INSERT INTO notifications (user_id, type, title, message, link) VALUES ($1, $2, $3, $4, $5)',
+      [userId, type, title, message, link || null]
+    );
+  } catch (e) {
+    console.error('createNotification error:', e);
+  }
+}
+
+async function sendEmailToUser({ userId, templateType, variables, fallbackSubject = 'Notification', fallbackHtml = '' }) {
+  try {
+    const userRes = await pool.query('SELECT email, name FROM profiles WHERE id = $1', [userId]);
+    if (!userRes.rows.length) return;
+    const { email, name } = userRes.rows[0];
+    const { logoUrl, siteUrl } = await getLogoAndSiteUrl();
+    await sendEmailWithTemplate({
+      to: email,
+      subject: fallbackSubject,
+      htmlContent: fallbackHtml,
+      templateType,
+      variables: { userName: name || '', siteUrl, logoUrl, ...(variables || {}) }
+    });
+  } catch (e) {
+    console.error('sendEmailToUser error:', e);
+  }
+}
+
+async function notifyUser({ userId, type, title, message, link, templateType, templateVars, fallbackSubject, fallbackHtml }) {
+  await createNotification({ userId, type, title, message, link });
+  await sendEmailToUser({ userId, templateType, variables: templateVars, fallbackSubject, fallbackHtml });
+}
+
+async function sendBookingStatusNotifications(booking, previousStatus) {
+  try {
+    const status = String(booking?.status || '').toLowerCase();
+    const prev = String(previousStatus || '').toLowerCase();
+    if (status === prev) return;
+
+    const userId = booking.user_id;
+    const instRes = await pool.query('SELECT name FROM instruments WHERE id = $1', [booking.instrument_id]);
+    const instrumentName = instRes.rows[0]?.name || 'an instrument';
+    const bookingDate = new Date(booking.start_time).toLocaleString();
+
+    if (status === 'confirmed') {
+      await notifyUser({
+        userId,
+        type: 'success',
+        title: 'Booking approved',
+        message: `Your booking for ${instrumentName} on ${bookingDate} has been approved.`,
+        templateType: 'booking_approved',
+        templateVars: { instrumentName, bookingDate, bookingId: booking.id },
+        fallbackSubject: 'Booking Approved',
+        fallbackHtml: `<h2>Your booking has been approved</h2><p>${instrumentName} on ${bookingDate}</p>`
+      });
+    } else if (status === 'denied') {
+      await notifyUser({
+        userId,
+        type: 'warning',
+        title: 'Booking denied',
+        message: `Your booking for ${instrumentName} on ${bookingDate} was denied.`,
+        templateType: 'booking_denied',
+        templateVars: { instrumentName, bookingDate, bookingId: booking.id },
+        fallbackSubject: 'Booking Denied',
+        fallbackHtml: `<h2>Your booking was denied</h2><p>${instrumentName} on ${bookingDate}</p>`
+      });
+    }
+  } catch (e) { console.error('sendBookingStatusNotifications error:', e); }
+}
+
+async function sendWaitlistFilledNotification(booking) {
+  try {
+    const userId = booking.user_id;
+    const instRes = await pool.query('SELECT name FROM instruments WHERE id = $1', [booking.instrument_id]);
+    const instrumentName = instRes.rows[0]?.name || 'an instrument';
+    const bookingDate = new Date(booking.start_time).toLocaleString();
+    await notifyUser({
+      userId,
+      type: 'success',
+      title: 'Waitlist slot auto-booked',
+      message: `A ${instrumentName} slot on ${bookingDate} became available and was booked for you.`,
+      templateType: 'waitlist_filled',
+      templateVars: { instrumentName, bookingDate, bookingId: booking.id },
+      fallbackSubject: 'Waitlist Slot Auto-Booked',
+      fallbackHtml: `<h2>A slot you were waiting for is now booked</h2><p>${instrumentName} on ${bookingDate}</p>`
+    });
+  } catch (e) { console.error('sendWaitlistFilledNotification error:', e); }
+}
+
+async function sendEmailDigest(userId, frequency) {
+  try {
+    const userRes = await pool.query('SELECT email, name FROM profiles WHERE id = $1', [userId]);
+    if (!userRes.rows.length) return;
+    const { email, name } = userRes.rows[0];
+
+    const since = frequency === 'weekly' ? "now() - interval '7 days'" : "now() - interval '1 day'";
+    const { rows } = await pool.query(
+      `SELECT * FROM notifications WHERE user_id = $1 AND created_at > ${since} ORDER BY created_at DESC`,
+      [userId]
+    );
+    if (!rows.length) return;
+
+    const { logoUrl, siteUrl } = await getLogoAndSiteUrl();
+    const listHtml = rows.map(n => `<li><strong>${n.title}</strong>: ${n.message}</li>`).join('');
+    const html = `<!DOCTYPE html><html><body><div style="text-align:center"><img src="${logoUrl}" style="max-height:60px" alt="Lab Logo" /></div><h2>Hello ${name || ''},</h2><p>Here are your recent notifications:</p><ul>${listHtml}</ul><p><a href="${siteUrl}">View dashboard</a></p></body></html>`;
+
+    await sendEmailWithTemplate({
+      to: email,
+      subject: frequency === 'weekly' ? 'Weekly Lab Digest' : 'Daily Lab Digest',
+      htmlContent: html,
+      templateType: 'notification_digest',
+      variables: { userName: name || '', siteUrl, logoUrl, notifications: listHtml }
+    });
+
+    await pool.query('UPDATE notifications SET email_sent = true WHERE id = ANY($1::uuid[])', [rows.map(n => n.id)]);
+    await pool.query('UPDATE email_digests SET last_sent = now() WHERE user_id = $1', [userId]);
+  } catch (e) { console.error('sendEmailDigest error:', e); }
+}
+
 async function sendEmailWithTemplate({ to, subject, htmlContent, templateType, variables }) {
   const settingsRows = await pool.query('SELECT * FROM smtp_settings LIMIT 1');
   const settings = settingsRows.rows[0];
@@ -579,18 +739,25 @@ async function sendEmailWithTemplate({ to, subject, htmlContent, templateType, v
   global.smtpSettingsCache = settings;
 
   let body = htmlContent;
+  const { logoUrl, siteUrl } = await getLogoAndSiteUrl();
+  const vars = { ...(variables || {}), logoUrl, siteUrl };
+
   if (templateType) {
     const templateRows = await pool.query('SELECT * FROM email_templates WHERE template_type = $1', [templateType]);
     if (templateRows.rows.length) {
       let tpl = templateRows.rows[0].html_content;
       const subj = templateRows.rows[0].subject;
       if (subj) subject = subj;
-      const vars = variables || {};
       for (const [k, v] of Object.entries(vars)) {
         tpl = tpl.split(`{{${k}}}`).join(String(v));
       }
       body = tpl;
     }
+  }
+
+  // Always ensure logo is included near the top if not already present
+  if (logoUrl && !body.includes(logoUrl) && body.includes('<body')) {
+    body = body.replace(/<body([^>]*)>/i, `<body$1><div style="text-align:center;padding:10px 0"><img src="${logoUrl}" style="max-height:60px" alt="Lab Logo" /></div>`);
   }
 
   const transporter = smtpTransport(settings);
@@ -812,6 +979,28 @@ function isImmovableSwapStatus(status) {
   return IMMOVABLE_SWAP_STATUSES.includes(String(status || '').toLowerCase());
 }
 
+async function sendSwapStatusNotification(swap, status) {
+  try {
+    const requesterName = swap.requester_name || 'Someone';
+    const recipientName = swap.recipient_name || 'Someone';
+    const title = `Swap request ${status}`;
+    const message = `Your swap request with ${status === 'pending' ? recipientName : status === 'accepted' || status === 'approved' ? 'has been accepted' : 'has been declined'}.`;
+    for (const userId of [swap.requester_user_id, swap.recipient_user_id]) {
+      if (!userId) continue;
+      await notifyUser({
+        userId,
+        type: 'info',
+        title,
+        message,
+        templateType: 'swap_status',
+        templateVars: { status: String(status).toLowerCase(), requesterName, recipientName },
+        fallbackSubject: title,
+        fallbackHtml: `<h2>${title}</h2><p>${message}</p>`
+      });
+    }
+  } catch (e) { console.error('sendSwapStatusNotification error:', e); }
+}
+
 async function getSwapWithBookings(swapId) {
   const { rows: swapRows } = await pool.query(
     `SELECT s.*,
@@ -895,6 +1084,8 @@ async function autoFillWaitlist(instrumentId, startTime, endTime) {
         [newBooking.id, w.id]
       );
 
+      sendWaitlistFilledNotification(newBooking);
+
       filled.push({ waitlist: w, booking: newBooking });
     }
     return filled;
@@ -966,6 +1157,8 @@ app.post('/api/booking-swaps', requireAuth, async (req, res) => {
       [requesterBookingId, recipientBookingId, requesterBooking.user_id, recipientBooking.user_id]
     );
 
+    sendSwapStatusNotification(rows[0], 'pending');
+
     res.json({ data: rows[0], error: null });
   } catch (err) {
     console.error('create booking swap error:', err);
@@ -1000,6 +1193,7 @@ app.post('/api/booking-swaps/:id/respond', requireAuth, async (req, res) => {
       'UPDATE booking_swaps SET status = $1, responded_at = now(), updated_at = now() WHERE id = $2 RETURNING *',
       [newStatus, swapId]
     );
+    sendSwapStatusNotification(swap, newStatus);
     res.json({ data: rows[0], error: null });
   } catch (err) {
     console.error('respond to swap error:', err);
@@ -1035,6 +1229,7 @@ app.post('/api/booking-swaps/:id/admin', requireAuth, requireAdmin, async (req, 
       'UPDATE booking_swaps SET status = $1, admin_notes = $2, updated_at = now() WHERE id = $3 RETURNING *',
       [normalizedStatus, notes, swapId]
     );
+    sendSwapStatusNotification(swap, normalizedStatus);
     res.json({ data: rows[0], error: null });
   } catch (err) {
     console.error('admin review swap error:', err);
