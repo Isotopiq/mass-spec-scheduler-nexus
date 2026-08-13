@@ -18,8 +18,8 @@ open http://localhost:41783
 ### Production Deployment
 
 ```bash
-# Build for production
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
+# Build and run the standalone production stack (Postgres + app)
+docker compose -f docker-compose.prod.yml up --build -d
 ```
 
 ## Platform-Specific Deployments
@@ -49,10 +49,13 @@ EasyPanel provides a simple Docker-based deployment platform with a web interfac
 
 #### Method 2: Docker Compose Deployment
 
-1. **Upload your docker-compose.yml to EasyPanel**
+1. **Upload `docker-compose.prod.yml` to EasyPanel** (it is a standalone production stack with Postgres)
 2. **Create a new stack**
-3. **Use the provided docker-compose.yml**
-4. **Configure domain in EasyPanel dashboard**
+3. **Set required environment variables:**
+   - `JWT_SECRET` - generate a long random string
+   - `DEFAULT_ADMIN_EMAIL` / `DEFAULT_ADMIN_PASSWORD` (optional; defaults to `admin@example.com` / `admin123`)
+4. **Configure domain and SSL in EasyPanel dashboard**
+5. **Deploy the stack**
 
 #### Method 3: GitHub Integration
 

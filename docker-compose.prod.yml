@@ -1,22 +1,55 @@
-
-# Production override for docker-compose
-version: '3.8'
+# Standalone production compose file for EasyPanel and other Docker platforms.
+# This file spins up Postgres and the Lab Management app in one stack.
+# For local development, use docker-compose.yml instead.
 
 services:
+  db:
+    image: postgres:15-alpine
+    container_name: lab-management-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mass_spec_scheduler
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   lab-management:
+    build: .
+    container_name: lab-management-system
+    ports:
+      - "3000:3000"
     environment:
       - NODE_ENV=production
-      # Add your production environment variables here
-      # - VITE_SUPABASE_URL=https://your-supabase-instance.com
-      # - VITE_SUPABASE_ANON_KEY=your-anon-key
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/mass_spec_scheduler
+      - JWT_SECRET=${JWT_SECRET:-change-me-to-a-long-random-secret}
+      - S3_PROVIDER=local
+      - DEFAULT_ADMIN_EMAIL=${DEFAULT_ADMIN_EMAIL:-admin@example.com}
+      - DEFAULT_ADMIN_PASSWORD=${DEFAULT_ADMIN_PASSWORD:-admin123}
+    volumes:
+      - app_uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     deploy:
-      replicas: 2
-      restart_policy:
-        condition: on-failure
-        delay: 5s
-        max_attempts: 3
       resources:
         limits:
           memory: 512M
         reservations:
           memory: 256M
+
+volumes:
+  postgres_data:
+  app_uploads:
