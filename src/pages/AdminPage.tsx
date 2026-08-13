@@ -16,6 +16,7 @@ import BookingSettings from "../components/admin/BookingSettings";
 import SiteAssetsSettings from "../components/admin/SiteAssetsSettings";
 import { SwapRequestsManagement } from "../components/admin/SwapRequestsManagement";
 import { WaitlistPanel } from "../components/bookings/WaitlistPanel";
+import { QuotaManagement } from "../components/admin/QuotaManagement";
 import { Navigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 
@@ -48,7 +49,7 @@ const AdminPage: React.FC = () => {
       )}
       
       <Tabs value={activeTab} onValueChange={handleTabChange}>
-        <TabsList className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-[repeat(13,minmax(0,1fr))] gap-2 w-full max-w-7xl h-auto p-1">
+        <TabsList className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-[repeat(14,minmax(0,1fr))] gap-2 w-full max-w-7xl h-auto p-1">
           <TabsTrigger value="pending-bookings" className="px-2 py-2 text-sm" onClick={() => setActiveTab("pending-bookings")}>Pending</TabsTrigger>
           <TabsTrigger value="booking-history" className="px-2 py-2 text-sm" onClick={() => setActiveTab("booking-history")}>History</TabsTrigger>
           <TabsTrigger value="users" className="px-2 py-2 text-sm" onClick={() => setActiveTab("users")}>Users</TabsTrigger>
@@ -61,6 +62,7 @@ const AdminPage: React.FC = () => {
           <TabsTrigger value="booking-settings" className="px-2 py-2 text-sm" onClick={() => setActiveTab("booking-settings")}>Booking</TabsTrigger>
           <TabsTrigger value="swap-requests" className="px-2 py-2 text-sm" onClick={() => setActiveTab("swap-requests")}>Swaps</TabsTrigger>
           <TabsTrigger value="waitlist" className="px-2 py-2 text-sm" onClick={() => setActiveTab("waitlist")}>Waitlist</TabsTrigger>
+          <TabsTrigger value="quotas" className="px-2 py-2 text-sm" onClick={() => setActiveTab("quotas")}>Quotas</TabsTrigger>
           <TabsTrigger value="site-assets" className="px-2 py-2 text-sm" onClick={() => setActiveTab("site-assets")}>Branding</TabsTrigger>
         </TabsList>
         
@@ -110,6 +112,10 @@ const AdminPage: React.FC = () => {
 
         <TabsContent value="waitlist" className="mt-6">
           {activeTab === "waitlist" && <WaitlistPanel admin />}
+        </TabsContent>
+
+        <TabsContent value="quotas" className="mt-6">
+          {activeTab === "quotas" && <QuotaManagement />}
         </TabsContent>
 
         <TabsContent value="site-assets" className="mt-6">

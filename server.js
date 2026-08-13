@@ -41,6 +41,8 @@ const ALLOWED_TABLES = {
   schedule_delay_bookings: { select: 'all', insert: 'admin', update: 'admin', delete: 'admin', restrictedColumns: [] },
   smtp_settings: { select: 'admin', insert: 'admin', update: 'admin', delete: 'admin', restrictedColumns: [] },
   status_colors: { select: 'all', insert: 'admin', update: 'admin', delete: 'admin', restrictedColumns: [] },
+  usage_quota_periods: { select: 'all', insert: 'admin', update: 'admin', delete: 'admin', restrictedColumns: [] },
+  usage_quotas: { select: 'all', insert: 'admin', update: 'admin', delete: 'admin', restrictedColumns: [] },
 };
 
 function sanitizeColumn(col) {
@@ -182,6 +184,55 @@ async function getSettings() {
   }
 }
 
+async function enforceQuotaRules(userId, instrumentId, startTime, endTime, excludeBookingId) {
+  const user_id = userId;
+  if (!user_id || !startTime || !endTime) return;
+
+  const { rows: periods } = await pool.query(
+    `SELECT p.id, p.name, p.start_date, p.end_date
+     FROM usage_quota_periods p
+     WHERE p.active = true
+       AND p.start_date <= $1 AND p.end_date >= $2`,
+    [endTime, startTime]
+  );
+
+  for (const period of periods) {
+    const { rows: quotas } = await pool.query(
+      `SELECT q.*
+       FROM usage_quotas q
+       WHERE q.period_id = $1 AND q.user_id = $2
+         AND (q.instrument_id IS NULL OR q.instrument_id = $3)`,
+      [period.id, user_id, instrumentId]
+    );
+
+    for (const quota of quotas) {
+      const { rows: usage } = await pool.query(
+        `SELECT
+           COALESCE(SUM(EXTRACT(EPOCH FROM (b.end_time - b.start_time)) / 3600.0), 0) AS total_hours,
+           COUNT(*) AS total_bookings
+         FROM bookings b
+         WHERE b.user_id = $1
+           AND b.start_time >= $2 AND b.end_time <= $3
+           AND lower(b.status) NOT IN ('cancelled', 'denied')
+           AND ($4::uuid IS NULL OR b.id <> $4)
+           AND ($5::uuid IS NULL OR b.instrument_id = $5)`,
+        [user_id, period.start_date, period.end_date, excludeBookingId || null, quota.instrument_id || null]
+      );
+      const u = usage[0];
+      const newHours = (new Date(endTime) - new Date(startTime)) / 36e5;
+      const newTotalHours = parseFloat(u.total_hours) + newHours;
+      const newTotalBookings = parseInt(u.total_bookings, 10) + 1;
+
+      if (quota.max_hours !== null && newTotalHours > parseFloat(quota.max_hours)) {
+        throw new Error(`Quota exceeded for period "${period.name}": this booking would exceed the ${quota.max_hours}-hour limit for ${quota.instrument_id ? 'this instrument' : 'all instruments'}.`);
+      }
+      if (quota.max_bookings !== null && newTotalBookings > quota.max_bookings) {
+        throw new Error(`Quota exceeded for period "${period.name}": this booking would exceed the ${quota.max_bookings}-booking limit for ${quota.instrument_id ? 'this instrument' : 'all instruments'}.`);
+      }
+    }
+  }
+}
+
 async function enforceBookingRules(action, values, table, filters, user) {
   if (table !== 'bookings') return;
 
@@ -245,6 +296,12 @@ async function enforceBookingRules(action, values, table, filters, user) {
     `;
     const { rows } = await pool.query(overlapQuery, [instrumentId, bookingId || null, endTime, startTime]);
     if (rows.length) throw new Error('Booking conflict: this instrument is already booked during the selected time window.');
+  }
+
+  // Quota enforcement
+  const effectiveUserId = values?.user_id || user?.id;
+  if (effectiveUserId && startTime && endTime && !['cancelled', 'denied'].includes(lowerStatus)) {
+    await enforceQuotaRules(effectiveUserId, instrumentId, startTime, endTime, action === 'update' ? bookingId : null);
   }
 }
 
