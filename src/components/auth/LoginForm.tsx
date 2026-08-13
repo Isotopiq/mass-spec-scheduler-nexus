@@ -6,6 +6,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "../../hooks/use-toast";
 import { Button } from "../ui/button";
+import { Checkbox } from "../ui/checkbox";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "../ui/form";
 import { Input } from "../ui/input";
 import { useAuth } from "../../contexts/AuthContext";
@@ -15,6 +16,7 @@ import { toast } from "sonner";
 const formSchema = z.object({
   email: z.string().email({ message: "Please enter a valid email" }),
   password: z.string().min(1, { message: "Password is required" }),
+  rememberMe: z.boolean().default(false),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -29,6 +31,7 @@ const LoginForm: React.FC = () => {
     defaultValues: {
       email: "",
       password: "",
+      rememberMe: false,
     },
   });
   
@@ -37,7 +40,7 @@ const LoginForm: React.FC = () => {
     try {
       setIsLoading(true);
       console.log("Attempting login with:", values.email);
-      await login(values.email, values.password);
+      await login(values.email, values.password, values.rememberMe);
       console.log("Login successful");
       
       toast.success("Login successful! Welcome back to the Mass Spec Lab");
@@ -80,6 +83,23 @@ const LoginForm: React.FC = () => {
                 <Input type="password" placeholder="••••••••" {...field} />
               </FormControl>
               <FormMessage />
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={form.control}
+          name="rememberMe"
+          render={({ field }) => (
+            <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+              <FormControl>
+                <Checkbox
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                />
+              </FormControl>
+              <div className="space-y-1 leading-none">
+                <FormLabel className="font-normal cursor-pointer">Remember me for 30 days</FormLabel>
+              </div>
             </FormItem>
           )}
         />

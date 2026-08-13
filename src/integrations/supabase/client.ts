@@ -89,8 +89,8 @@ const auth = {
     return { data: { subscription: { unsubscribe: () => authCallbacks.delete(callback) } } };
   },
 
-  async signInWithPassword({ email, password }: { email: string; password: string }) {
-    const json = await apiPost('/api/auth/signin', { email, password });
+  async signInWithPassword({ email, password, rememberMe }: { email: string; password: string; rememberMe?: boolean }) {
+    const json = await apiPost('/api/auth/signin', { email, password, rememberMe });
     if (json.error) return { data: null, error: json.error };
     if (json.data?.session) setAuth(json.data.session.access_token, json.data.session.user);
     return { data: { session: json.data?.session, user: json.data?.user }, error: null };

@@ -386,7 +386,18 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-function userRowToSession(row) {
+function durationSeconds(expiresIn) {
+  const match = typeof expiresIn === 'string' && expiresIn.match(/^(\d+)([smhd])$/);
+  if (!match) return 604800;
+  const value = parseInt(match[1], 10);
+  const unit = match[2];
+  const multipliers = { s: 1, m: 60, h: 3600, d: 86400 };
+  return value * (multipliers[unit] || 86400);
+}
+
+function userRowToSession(row, options = {}) {
+  const expiresIn = options.expiresIn || '7d';
+  const expiresInSeconds = durationSeconds(expiresIn);
   const user = {
     id: row.id,
     email: row.email,
@@ -411,8 +422,8 @@ function userRowToSession(row) {
     last_sign_in_at: row.last_sign_in_at || null,
     is_anonymous: false
   };
-  const accessToken = jwt.sign({ id: row.id, email: row.email, role: row.role, name: row.name, department: row.department, profile_image: row.profile_image }, JWT_SECRET, { expiresIn: '7d' });
-  return { user, accessToken };
+  const accessToken = jwt.sign({ id: row.id, email: row.email, role: row.role, name: row.name, department: row.department, profile_image: row.profile_image }, JWT_SECRET, { expiresIn });
+  return { user, accessToken, expires_in: expiresInSeconds };
 }
 
 async function runMigrations() {
@@ -540,8 +551,8 @@ app.post('/api/auth/signup', async (req, res) => {
       'INSERT INTO profiles (email, name, role, department, password_hash) VALUES ($1, $2, $3, $4, $5) RETURNING *',
       [email, name, role, department || null, hash]
     );
-    const { user, accessToken } = userRowToSession(rows[0]);
-    res.json({ data: { user, session: { access_token: accessToken, token_type: 'bearer', expires_in: 604800, expires_at: Date.now() + 604800000, user } }, error: null });
+    const { user, accessToken, expires_in } = userRowToSession(rows[0]);
+    res.json({ data: { user, session: { access_token: accessToken, token_type: 'bearer', expires_in, expires_at: Date.now() + expires_in * 1000, user } }, error: null });
   } catch (err) {
     res.status(400).json({ data: null, error: { message: err.message } });
   }
@@ -549,15 +560,16 @@ app.post('/api/auth/signup', async (req, res) => {
 
 app.post('/api/auth/signin', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, rememberMe } = req.body;
     if (!email || !password) throw new Error('Email and password are required');
     const { rows } = await pool.query('SELECT * FROM profiles WHERE email = $1', [email]);
     if (!rows.length) throw new Error('Invalid login credentials');
     const valid = await bcrypt.compare(password, rows[0].password_hash);
     if (!valid) throw new Error('Invalid login credentials');
     await pool.query('UPDATE profiles SET last_sign_in_at = now() WHERE id = $1', [rows[0].id]);
-    const { user, accessToken } = userRowToSession(rows[0]);
-    res.json({ data: { user, session: { access_token: accessToken, token_type: 'bearer', expires_in: 604800, expires_at: Date.now() + 604800000, user } }, error: null });
+    const expiresIn = rememberMe ? '30d' : '1d';
+    const { user, accessToken, expires_in } = userRowToSession(rows[0], { expiresIn });
+    res.json({ data: { user, session: { access_token: accessToken, token_type: 'bearer', expires_in, expires_at: Date.now() + expires_in * 1000, user } }, error: null });
   } catch (err) {
     res.status(400).json({ data: null, error: { message: err.message } });
   }
@@ -571,8 +583,8 @@ app.get('/api/auth/session', requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM profiles WHERE id = $1', [req.user.id]);
     if (!rows.length) throw new Error('User not found');
-    const { user, accessToken } = userRowToSession(rows[0]);
-    res.json({ data: { session: { access_token: accessToken, token_type: 'bearer', expires_in: 604800, expires_at: Date.now() + 604800000, user } }, error: null });
+    const { user, accessToken, expires_in } = userRowToSession(rows[0]);
+    res.json({ data: { session: { access_token: accessToken, token_type: 'bearer', expires_in, expires_at: Date.now() + expires_in * 1000, user } }, error: null });
   } catch (err) {
     res.status(400).json({ data: null, error: { message: err.message } });
   }

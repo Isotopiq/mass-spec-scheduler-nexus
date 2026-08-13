@@ -11,7 +11,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   users: User[];
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, rememberMe?: boolean) => Promise<void>;
   logout: () => Promise<void>;
   updateUserProfile: (updatedUser: User) => void;
   updateUserPassword: (userId: string, newPassword: string) => Promise<void>;
@@ -186,8 +186,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const login = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const login = async (email: string, password: string, rememberMe?: boolean) => {
+    const { error } = await supabase.auth.signInWithPassword({ email, password, rememberMe });
     if (error) throw error;
   };
 
