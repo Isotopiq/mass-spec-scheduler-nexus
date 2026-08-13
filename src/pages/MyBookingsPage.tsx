@@ -10,6 +10,7 @@ import { BookingCard } from "../components/bookings/BookingCard";
 import { BookingSearch } from "../components/bookings/BookingSearch";
 import { BookingSortDropdown, SortOption } from "../components/bookings/BookingSortDropdown";
 import { SwapRequestsPanel } from "../components/bookings/SwapRequestsPanel";
+import { WaitlistPanel } from "../components/bookings/WaitlistPanel";
 import { Booking } from "../types";
 
 const MyBookingsPage: React.FC = () => {
@@ -313,6 +314,7 @@ const MyBookingsPage: React.FC = () => {
       </Tabs>
 
       <SwapRequestsPanel />
+      <WaitlistPanel />
     </div>
   );
 };

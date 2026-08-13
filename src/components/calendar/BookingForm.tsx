@@ -37,6 +37,8 @@ const BookingForm: React.FC<BookingFormProps> = ({
   const { user } = useAuth();
   const { settings: appSettings } = useAppSettings();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isJoiningWaitlist, setIsJoiningWaitlist] = useState(false);
+  const [showWaitlistOffer, setShowWaitlistOffer] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [formData, setFormData] = useState({
     selectedInstrument: instrumentId || "",
@@ -160,9 +162,12 @@ const BookingForm: React.FC<BookingFormProps> = ({
       });
       if (conflict) {
         toast.error(describeConflict(conflict));
+        setShowWaitlistOffer(true);
         setIsSubmitting(false);
         return;
       }
+
+      setShowWaitlistOffer(false);
 
       // Always set status as pending for new bookings
       const initialStatus = "pending";
@@ -253,6 +258,45 @@ const BookingForm: React.FC<BookingFormProps> = ({
       }
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleJoinWaitlist = async () => {
+    if (!user || !selectedInstrument) return;
+    setIsJoiningWaitlist(true);
+    try {
+      const [hours, minutes] = formData.selectedTime.split(':').map(Number);
+      const startDate = new Date(formData.selectedDate);
+      startDate.setHours(hours, minutes, 0, 0);
+      const endDate = calculateEndDateTime();
+
+      const { error } = await supabase.from('booking_waitlist').insert({
+        instrument_id: selectedInstrument.id,
+        start_time: startDate.toISOString(),
+        end_time: endDate.toISOString(),
+        purpose: formData.purpose || 'Waitlist request',
+        details: formData.details
+      });
+
+      if (error) throw error;
+      toast.success('Added to waitlist. You will be notified if the slot becomes available.');
+      setShowWaitlistOffer(false);
+      onOpenChange(false);
+      setFormData({
+        selectedInstrument: instrumentId || "",
+        selectedDate: selectedDate || new Date(),
+        selectedTime: selectedTime,
+        duration: "1",
+        purpose: "",
+        details: "",
+        sampleNumber: "",
+        sampleRunTime: ""
+      });
+    } catch (error: any) {
+      console.error('Error joining waitlist:', error);
+      toast.error(error?.message || 'Failed to join waitlist.');
+    } finally {
+      setIsJoiningWaitlist(false);
     }
   };
 
@@ -468,6 +512,30 @@ const BookingForm: React.FC<BookingFormProps> = ({
               <strong>Note:</strong> Your booking will be submitted for admin approval and will be pending until confirmed.
             </p>
           </div>
+
+          {showWaitlistOffer && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-3">
+              <p className="text-sm text-amber-800">
+                This slot is currently booked. You can join the waitlist to be notified and auto-booked if it becomes available.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleJoinWaitlist}
+                disabled={isJoiningWaitlist}
+                className="w-full"
+              >
+                {isJoiningWaitlist ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Joining...
+                  </>
+                ) : (
+                  'Join Waitlist'
+                )}
+              </Button>
+            </div>
+          )}
 
           <div className="flex gap-2 pt-4">
             <Button

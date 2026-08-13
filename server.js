@@ -31,6 +31,7 @@ const ALLOWED_TABLES = {
   app_settings: { select: 'all', insert: 'admin', update: 'admin', delete: 'admin', restrictedColumns: [] },
   bookings: { select: 'all', insert: 'authenticated', update: 'owner-or-admin', delete: 'owner-or-admin', restrictedColumns: [] },
   booking_swaps: { select: 'admin', insert: 'authenticated', update: 'admin', delete: 'admin', restrictedColumns: [] },
+  booking_waitlist: { select: 'owner-or-admin', insert: 'authenticated', update: 'owner-or-admin', delete: 'owner-or-admin', restrictedColumns: [] },
   comments: { select: 'all', insert: 'authenticated', update: 'owner-or-admin', delete: 'owner-or-admin', restrictedColumns: [] },
   email_templates: { select: 'all', insert: 'admin', update: 'admin', delete: 'admin', restrictedColumns: [] },
   instruments: { select: 'all', insert: 'admin', update: 'admin', delete: 'admin', restrictedColumns: [] },
@@ -119,6 +120,12 @@ function buildWhere(filters, table, user, action, values, paramStart = 1) {
         params.push(user.id, user.role, 'admin'); // simplified: if admin, allow all; else own
         paramIdx += 3;
       }
+    }
+  }
+  if (table === 'booking_waitlist' && (action === 'update' || action === 'delete' || action === 'select')) {
+    if (user.role !== 'admin') {
+      conditions.push(pgFormat('"user_id" = $%s', paramIdx++));
+      params.push(user.id);
     }
   }
   if (table === 'comments' && (action === 'update' || action === 'delete')) {
@@ -262,6 +269,10 @@ async function handleRestQuery(req, res) {
       safeValues.user_id = user.id;
     }
 
+    if (table === 'booking_waitlist' && action === 'insert' && safeValues && user.role !== 'admin') {
+      safeValues.user_id = user.id;
+    }
+
     if (table === 'profiles' && action === 'insert' && safeValues && user.role !== 'admin') {
       throw new Error('Only admins can create profiles directly');
     }
@@ -326,9 +337,26 @@ async function handleRestQuery(req, res) {
       if (columns) sql += ' RETURNING ' + sanitizeColumns(columns, table);
     }
 
+    let preDeleteBookings = [];
+    if (table === 'bookings' && action === 'delete') {
+      try {
+        const { where: preWhere, params: preParams } = buildWhere(filters, table, user, 'select', null, 1);
+        const preResult = await pool.query(`SELECT id, instrument_id, start_time, end_time FROM "${table}" ${preWhere}`, preParams);
+        preDeleteBookings = preResult.rows;
+      } catch (e) {
+        console.error('pre-delete booking fetch error:', e);
+      }
+    }
+
     const queryResult = await pool.query(sql, params);
     const rows = queryResult.rows;
     const rowCount = queryResult.rowCount;
+
+    if (table === 'bookings' && action === 'delete') {
+      for (const b of preDeleteBookings) {
+        autoFillWaitlist(b.instrument_id, b.start_time, b.end_time);
+      }
+    }
 
     let data = rows;
     if (single) {
@@ -762,6 +790,51 @@ async function canExecuteSwap(swap) {
   return !aConflicts && !bConflicts;
 }
 
+async function autoFillWaitlist(instrumentId, startTime, endTime) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM booking_waitlist
+       WHERE instrument_id = $1
+         AND status = 'waiting'
+         AND start_time < $2 AND end_time > $3
+       ORDER BY created_at ASC`,
+      [instrumentId, endTime, startTime]
+    );
+
+    const filled = [];
+    for (const w of rows) {
+      // Check that this waiting slot is still free before converting
+      const overlap = await pool.query(
+        `SELECT 1 FROM bookings
+         WHERE instrument_id = $1
+           AND lower(status) NOT IN ('cancelled', 'denied')
+           AND start_time < $2 AND end_time > $3
+         LIMIT 1`,
+        [w.instrument_id, w.end_time, w.start_time]
+      );
+      if (overlap.rows.length) continue;
+
+      const newBookingResult = await pool.query(
+        `INSERT INTO bookings (user_id, instrument_id, start_time, end_time, purpose, details, status)
+         VALUES ($1, $2, $3, $4, $5, $6, 'confirmed') RETURNING *`,
+        [w.user_id, w.instrument_id, w.start_time, w.end_time, w.purpose || 'Waitlist auto-fill', w.details]
+      );
+      const newBooking = newBookingResult.rows[0];
+
+      await pool.query(
+        `UPDATE booking_waitlist SET status = 'filled', filled_booking_id = $1, updated_at = now() WHERE id = $2`,
+        [newBooking.id, w.id]
+      );
+
+      filled.push({ waitlist: w, booking: newBooking });
+    }
+    return filled;
+  } catch (e) {
+    console.error('autoFillWaitlist error:', e);
+    return [];
+  }
+}
+
 async function executeSwapTx(swap) {
   const requesterInstrumentId = swap.tb_instrument_id;
   const requesterStart = swap.tb_start;
@@ -973,6 +1046,61 @@ app.get('/api/booking-swaps/eligible', requireAuth, async (req, res) => {
     res.json({ data: rows, error: null });
   } catch (err) {
     console.error('eligible swaps error:', err);
+    res.status(400).json({ data: null, error: { message: err.message } });
+  }
+});
+
+// Waitlist
+app.get('/api/waitlist', requireAuth, async (req, res) => {
+  try {
+    const { status } = req.query;
+    let sql = `
+      SELECT w.*,
+             i.name as instrument_name,
+             p.name as user_name,
+             p.email as user_email,
+             b.id as filled_booking_id,
+             b.start_time as filled_start,
+             b.end_time as filled_end
+      FROM booking_waitlist w
+      JOIN instruments i ON i.id = w.instrument_id
+      JOIN profiles p ON p.id = w.user_id
+      LEFT JOIN bookings b ON b.id = w.filled_booking_id
+    `;
+    const params = [];
+    const conditions = [];
+    if (req.user.role !== 'admin') {
+      conditions.push('w.user_id = $1');
+      params.push(req.user.id);
+    }
+    if (status) {
+      params.push(status);
+      conditions.push(`w.status = $${params.length}`);
+    }
+    if (conditions.length) sql += ' WHERE ' + conditions.join(' AND ');
+    sql += ' ORDER BY w.created_at DESC';
+
+    const { rows } = await pool.query(sql, params);
+    res.json({ data: rows, error: null });
+  } catch (err) {
+    console.error('list waitlist error:', err);
+    res.status(400).json({ data: null, error: { message: err.message } });
+  }
+});
+
+app.post('/api/waitlist/:id/cancel', requireAuth, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const { rows: existing } = await pool.query('SELECT * FROM booking_waitlist WHERE id = $1', [id]);
+    if (!existing.length) throw new Error('Waitlist entry not found');
+    if (req.user.role !== 'admin' && existing[0].user_id !== req.user.id) throw new Error('Not authorized');
+    const { rows } = await pool.query(
+      "UPDATE booking_waitlist SET status = 'cancelled', updated_at = now() WHERE id = $1 RETURNING *",
+      [id]
+    );
+    res.json({ data: rows[0], error: null });
+  } catch (err) {
+    console.error('cancel waitlist error:', err);
     res.status(400).json({ data: null, error: { message: err.message } });
   }
 });
