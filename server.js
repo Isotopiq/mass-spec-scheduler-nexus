@@ -35,6 +35,7 @@ const ALLOWED_TABLES = {
   comments: { select: 'all', insert: 'authenticated', update: 'owner-or-admin', delete: 'owner-or-admin', restrictedColumns: [] },
   email_templates: { select: 'all', insert: 'admin', update: 'admin', delete: 'admin', restrictedColumns: [] },
   instruments: { select: 'all', insert: 'admin', update: 'admin', delete: 'admin', restrictedColumns: [] },
+  instrument_maintenance: { select: 'all', insert: 'admin', update: 'admin', delete: 'admin', restrictedColumns: [] },
   maintenance_history: { select: 'all', insert: 'admin', update: 'admin', delete: 'admin', restrictedColumns: [] },
   profiles: { select: 'all', insert: 'admin', update: 'owner-or-admin', delete: 'admin', restrictedColumns: ['password_hash'] },
   schedule_delays: { select: 'all', insert: 'admin', update: 'admin', delete: 'admin', restrictedColumns: [] },
@@ -296,6 +297,17 @@ async function enforceBookingRules(action, values, table, filters, user) {
     `;
     const { rows } = await pool.query(overlapQuery, [instrumentId, bookingId || null, endTime, startTime]);
     if (rows.length) throw new Error('Booking conflict: this instrument is already booked during the selected time window.');
+
+    // Maintenance conflict check
+    const maintQuery = `
+      SELECT 1 FROM instrument_maintenance
+      WHERE instrument_id = $1
+        AND lower(status) NOT IN ('cancelled', 'completed')
+        AND start_time < $2 AND end_time > $3
+      LIMIT 1
+    `;
+    const { rows: maintRows } = await pool.query(maintQuery, [instrumentId, endTime, startTime]);
+    if (maintRows.length) throw new Error('Instrument is unavailable due to scheduled maintenance during the selected time window.');
   }
 
   // Quota enforcement
