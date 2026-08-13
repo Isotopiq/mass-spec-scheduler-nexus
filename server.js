@@ -797,9 +797,16 @@ async function sendEmailWithTemplate({ to, subject, htmlContent, templateType, v
     }
   }
 
+  const logoHeader = logoUrl ? `<div style="text-align:center;padding:10px 0"><img src="${logoUrl}" style="max-height:60px" alt="Lab Logo" /></div>` : '';
+
   // Always ensure logo is included near the top if not already present
-  if (logoUrl && !body.includes(logoUrl) && body.includes('<body')) {
-    body = body.replace(/<body([^>]*)>/i, `<body$1><div style="text-align:center;padding:10px 0"><img src="${logoUrl}" style="max-height:60px" alt="Lab Logo" /></div>`);
+  if (body.includes('<body')) {
+    if (logoUrl && !body.includes(logoUrl)) {
+      body = body.replace(/<body([^>]*)>/i, `<body$1>${logoHeader}`);
+    }
+  } else if (body.trim()) {
+    // Wrap bare HTML content in a standard email shell with the logo header
+    body = `<!DOCTYPE html><html><body>${logoHeader}${body}</body></html>`;
   }
 
   const transporter = smtpTransport(settings);

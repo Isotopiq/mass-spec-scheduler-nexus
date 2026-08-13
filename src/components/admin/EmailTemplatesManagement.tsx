@@ -7,11 +7,12 @@ import { Textarea } from "../ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { Mail, Eye, Save } from "lucide-react";
 import { useEmailTemplates } from "../../hooks/useEmailTemplates";
-import { supabase } from "../../integrations/supabase/client";
+import { useAppSettings } from "../../hooks/useAppSettings";
 import { toast } from "sonner";
 
 const EmailTemplatesManagement: React.FC = () => {
   const { emailTemplates, isLoading, loadEmailTemplates, saveEmailTemplate } = useEmailTemplates();
+  const { settings } = useAppSettings();
   const [activeTemplate, setActiveTemplate] = useState("booking_confirmation");
   const [formData, setFormData] = useState({
     subject: "",
@@ -355,8 +356,7 @@ const EmailTemplatesManagement: React.FC = () => {
     
     // Use current form data (not saved template) for testing
     let testSubject = formData.subject;
-    let testContent = formData.htmlContent;
-    
+
     const sampleData = {
       "{{userName}}": "John Doe",
       "{{instrumentName}}": "Sample Instrument XR-1000",
@@ -370,32 +370,38 @@ const EmailTemplatesManagement: React.FC = () => {
 
     Object.entries(sampleData).forEach(([key, value]) => {
       testSubject = testSubject.replace(new RegExp(key.replace(/[{}]/g, '\\$&'), 'g'), value);
-      testContent = testContent.replace(new RegExp(key.replace(/[{}]/g, '\\$&'), 'g'), value);
     });
 
     try {
       console.log("Sending test template email...");
-      const { data, error } = await supabase.functions.invoke('send-email', {
-        body: {
+      const token = localStorage.getItem('standalone_auth_token');
+      const res = await fetch('/api/functions/send-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token || ''}`
+        },
+        body: JSON.stringify({
           to: testEmail,
           subject: testSubject,
-          htmlContent: testContent,
+          htmlContent: getPreviewContent(),
           templateType: null,
           variables: {}
-        }
+        })
       });
 
-      console.log("Test email response:", { data, error });
+      const json = await res.json().catch(() => ({ error: { message: 'Unknown error' } }));
+      console.log("Test email response:", json);
 
-      if (error) {
-        console.error("Test email error:", error);
-        throw error;
+      if (!res.ok || json.data?.success === false) {
+        const message = json.data?.error || json.error?.message || `Failed to send (${res.status})`;
+        throw new Error(message);
       }
 
       toast.success("Test email sent successfully!");
     } catch (error) {
       console.error("Error sending test email:", error);
-      toast.error("Failed to send test email: " + (error as Error).message);
+      toast.error("Failed to send test email: " + (error instanceof Error ? error.message : String(error)));
     }
     
     setIsSendingTest(false);
@@ -403,6 +409,8 @@ const EmailTemplatesManagement: React.FC = () => {
 
   const getPreviewContent = () => {
     let previewContent = formData.htmlContent;
+    const logoUrl = settings?.logo_url || `${window.location.origin}/lovable-uploads/40965317-613a-41b7-bc11-d9e8b6cba9ae.png`;
+    const siteUrl = window.location.origin;
     const sampleData = {
       "{{userName}}": "John Doe",
       "{{instrumentName}}": "Sample Instrument XR-1000",
@@ -416,12 +424,25 @@ const EmailTemplatesManagement: React.FC = () => {
       "{{reason}}": "Instrument maintenance ran long",
       "{{oldStartDate}}": new Date().toLocaleString(),
       "{{newStartDate}}": new Date(Date.now() + 45 * 60000).toLocaleString(),
-      "{{newEndDate}}": new Date(Date.now() + 165 * 60000).toLocaleString()
+      "{{newEndDate}}": new Date(Date.now() + 165 * 60000).toLocaleString(),
+      "{{logoUrl}}": logoUrl,
+      "{{siteUrl}}": siteUrl
     };
 
     Object.entries(sampleData).forEach(([key, value]) => {
       previewContent = previewContent.replace(new RegExp(key.replace(/[{}]/g, '\\$&'), 'g'), value);
     });
+
+    const logoHeader = logoUrl ? `<div style="text-align:center;padding:10px 0"><img src="${logoUrl}" style="max-height:60px" alt="Lab Logo" /></div>` : '';
+
+    // Match the server-side behavior: prepend a centered logo header if not already present
+    if (previewContent.includes('<body')) {
+      if (logoUrl && !previewContent.includes(logoUrl)) {
+        previewContent = previewContent.replace(/<body([^>]*)>/i, `<body$1>${logoHeader}`);
+      }
+    } else if (previewContent.trim()) {
+      previewContent = `<!DOCTYPE html><html><body>${logoHeader}${previewContent}</body></html>`;
+    }
 
     return previewContent;
   };
