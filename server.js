@@ -30,6 +30,7 @@ const pool = new Pool({ connectionString: DATABASE_URL });
 const ALLOWED_TABLES = {
   app_settings: { select: 'all', insert: 'admin', update: 'admin', delete: 'admin', restrictedColumns: [] },
   bookings: { select: 'all', insert: 'authenticated', update: 'owner-or-admin', delete: 'owner-or-admin', restrictedColumns: [] },
+  booking_swaps: { select: 'admin', insert: 'authenticated', update: 'admin', delete: 'admin', restrictedColumns: [] },
   comments: { select: 'all', insert: 'authenticated', update: 'owner-or-admin', delete: 'owner-or-admin', restrictedColumns: [] },
   email_templates: { select: 'all', insert: 'admin', update: 'admin', delete: 'admin', restrictedColumns: [] },
   instruments: { select: 'all', insert: 'admin', update: 'admin', delete: 'admin', restrictedColumns: [] },
@@ -705,6 +706,276 @@ app.get('/api/app-settings', async (req, res) => {
 });
 
 app.post('/api/rest/query', requireAuth, handleRestQuery);
+
+// Booking swaps
+const ACTIVE_SWAP_STATUSES = ['pending', 'accepted'];
+const IMMOVABLE_SWAP_STATUSES = ['cancelled', 'denied', 'completed'];
+
+function isImmovableSwapStatus(status) {
+  return IMMOVABLE_SWAP_STATUSES.includes(String(status || '').toLowerCase());
+}
+
+async function getSwapWithBookings(swapId) {
+  const { rows: swapRows } = await pool.query(
+    `SELECT s.*,
+            rb.start_time as rb_start, rb.end_time as rb_end, rb.instrument_id as rb_instrument_id, rb.user_id as rb_user_id, rb.purpose as rb_purpose,
+            tb.start_time as tb_start, tb.end_time as tb_end, tb.instrument_id as tb_instrument_id, tb.user_id as tb_user_id, tb.purpose as tb_purpose
+     FROM booking_swaps s
+     JOIN bookings rb ON rb.id = s.requester_booking_id
+     JOIN bookings tb ON tb.id = s.recipient_booking_id
+     WHERE s.id = $1`,
+    [swapId]
+  );
+  return swapRows[0] || null;
+}
+
+async function findBookingConflict(bookingId, startTime, endTime, instrumentId, excludeIds) {
+  const exclude = [bookingId, ...excludeIds].filter(Boolean);
+  const { rows } = await pool.query(
+    `SELECT 1 FROM bookings
+     WHERE instrument_id = $1 AND id <> ALL($2::uuid[]) AND lower(status) NOT IN ('cancelled', 'denied')
+       AND start_time < $3 AND end_time > $4
+     LIMIT 1`,
+    [instrumentId, exclude, endTime, startTime]
+  );
+  return rows.length > 0;
+}
+
+async function canExecuteSwap(swap) {
+  // Check that swapping instrument/time between the two bookings doesn't create conflicts with other bookings.
+  const requesterBooking = {
+    id: swap.requester_booking_id,
+    start: swap.requester_new_start || swap.tb_start,
+    end: swap.requester_new_end || swap.tb_end,
+    instrument_id: swap.requester_new_instrument_id || swap.tb_instrument_id
+  };
+  const recipientBooking = {
+    id: swap.recipient_booking_id,
+    start: swap.recipient_new_start || swap.rb_start,
+    end: swap.recipient_new_end || swap.rb_end,
+    instrument_id: swap.recipient_new_instrument_id || swap.rb_instrument_id
+  };
+
+  // If swapped slots would overlap each other that's fine only if start/end match, which they do by exchange.
+  const aConflicts = await findBookingConflict(requesterBooking.id, requesterBooking.start, requesterBooking.end, requesterBooking.instrument_id, [recipientBooking.id]);
+  const bConflicts = await findBookingConflict(recipientBooking.id, recipientBooking.start, recipientBooking.end, recipientBooking.instrument_id, [requesterBooking.id]);
+  return !aConflicts && !bConflicts;
+}
+
+async function executeSwapTx(swap) {
+  const requesterInstrumentId = swap.tb_instrument_id;
+  const requesterStart = swap.tb_start;
+  const requesterEnd = swap.tb_end;
+  const recipientInstrumentId = swap.rb_instrument_id;
+  const recipientStart = swap.rb_start;
+  const recipientEnd = swap.rb_end;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      'UPDATE bookings SET instrument_id = $1, start_time = $2, end_time = $3 WHERE id = $4',
+      [requesterInstrumentId, requesterStart, requesterEnd, swap.requester_booking_id]
+    );
+    await client.query(
+      'UPDATE bookings SET instrument_id = $1, start_time = $2, end_time = $3 WHERE id = $4',
+      [recipientInstrumentId, recipientStart, recipientEnd, swap.recipient_booking_id]
+    );
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+app.post('/api/booking-swaps', requireAuth, async (req, res) => {
+  try {
+    const { requesterBookingId, recipientBookingId } = req.body;
+    if (!requesterBookingId || !recipientBookingId) throw new Error('Both bookings are required');
+    if (requesterBookingId === recipientBookingId) throw new Error('Cannot swap a booking with itself');
+
+    const { rows: requesterRows } = await pool.query('SELECT * FROM bookings WHERE id = $1', [requesterBookingId]);
+    const { rows: recipientRows } = await pool.query('SELECT * FROM bookings WHERE id = $1', [recipientBookingId]);
+    if (!requesterRows.length || !recipientRows.length) throw new Error('Booking not found');
+    const requesterBooking = requesterRows[0];
+    const recipientBooking = recipientRows[0];
+
+    if (['cancelled', 'denied'].includes(requesterBooking.status.toLowerCase()) || ['cancelled', 'denied'].includes(recipientBooking.status.toLowerCase())) {
+      throw new Error('Cannot swap cancelled or denied bookings');
+    }
+
+    if (req.user.role !== 'admin' && requesterBooking.user_id !== req.user.id) {
+      throw new Error('You can only request swaps for your own bookings');
+    }
+
+    const existing = await pool.query(
+      `SELECT id FROM booking_swaps
+       WHERE status IN ('pending', 'accepted')
+         AND (requester_booking_id = ANY($1::uuid[]) OR recipient_booking_id = ANY($1::uuid[]))`,
+      [[requesterBookingId, recipientBookingId]]
+    );
+    if (existing.rows.length) throw new Error('An active swap request already exists for one of these bookings');
+
+    const { rows } = await pool.query(
+      `INSERT INTO booking_swaps (requester_booking_id, recipient_booking_id, requester_user_id, recipient_user_id, status, requested_at)
+       VALUES ($1, $2, $3, $4, 'pending', now()) RETURNING *`,
+      [requesterBookingId, recipientBookingId, requesterBooking.user_id, recipientBooking.user_id]
+    );
+
+    res.json({ data: rows[0], error: null });
+  } catch (err) {
+    console.error('create booking swap error:', err);
+    res.status(400).json({ data: null, error: { message: err.message } });
+  }
+});
+
+app.post('/api/booking-swaps/:id/respond', requireAuth, async (req, res) => {
+  try {
+    const { response } = req.body; // 'accept', 'decline', or 'cancel'
+    const swapId = req.params.id;
+    const swap = await getSwapWithBookings(swapId);
+    if (!swap) throw new Error('Swap request not found');
+
+    if (response === 'cancel') {
+      if (req.user.role !== 'admin' && req.user.id !== swap.requester_user_id) throw new Error('Not authorized');
+      const { rows } = await pool.query(
+        "UPDATE booking_swaps SET status = 'cancelled', updated_at = now() WHERE id = $1 RETURNING *",
+        [swapId]
+      );
+      return res.json({ data: rows[0], error: null });
+    }
+
+    if (req.user.role !== 'admin' && req.user.id !== swap.recipient_user_id) throw new Error('Not authorized to respond to this swap');
+
+    let newStatus = swap.status;
+    if (response === 'accept') newStatus = 'accepted';
+    else if (response === 'decline') newStatus = 'declined';
+    else throw new Error('Invalid response');
+
+    const { rows } = await pool.query(
+      'UPDATE booking_swaps SET status = $1, responded_at = now(), updated_at = now() WHERE id = $2 RETURNING *',
+      [newStatus, swapId]
+    );
+    res.json({ data: rows[0], error: null });
+  } catch (err) {
+    console.error('respond to swap error:', err);
+    res.status(400).json({ data: null, error: { message: err.message } });
+  }
+});
+
+app.post('/api/booking-swaps/:id/admin', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { status: requestedStatus, adminNotes } = req.body;
+    const swapId = req.params.id;
+    const swap = await getSwapWithBookings(swapId);
+    if (!swap) throw new Error('Swap request not found');
+
+    const normalizedStatus = String(requestedStatus).toLowerCase();
+    if (!['pending', 'accepted', 'declined', 'approved', 'denied', 'cancelled'].includes(normalizedStatus)) {
+      throw new Error('Invalid status');
+    }
+
+    if (normalizedStatus === 'approved' && !['pending', 'accepted'].includes(swap.status)) {
+      throw new Error('Swap must be pending or accepted before it can be approved');
+    }
+
+    const notes = adminNotes !== undefined ? adminNotes : swap.admin_notes;
+
+    if (normalizedStatus === 'approved') {
+      const safeToSwap = await canExecuteSwap(swap);
+      if (!safeToSwap) throw new Error('Cannot approve swap: one or both bookings would conflict with existing reservations');
+      await executeSwapTx(swap);
+    }
+
+    const { rows } = await pool.query(
+      'UPDATE booking_swaps SET status = $1, admin_notes = $2, updated_at = now() WHERE id = $3 RETURNING *',
+      [normalizedStatus, notes, swapId]
+    );
+    res.json({ data: rows[0], error: null });
+  } catch (err) {
+    console.error('admin review swap error:', err);
+    res.status(400).json({ data: null, error: { message: err.message } });
+  }
+});
+
+app.get('/api/booking-swaps', requireAuth, async (req, res) => {
+  try {
+    const { status } = req.query;
+    let sql = `
+      SELECT s.*,
+             rb.start_time as requester_start, rb.end_time as requester_end,
+             rb.purpose as requester_purpose,
+             tb.start_time as recipient_start, tb.end_time as recipient_end,
+             tb.purpose as recipient_purpose,
+             i1.name as requester_instrument_name,
+             i2.name as recipient_instrument_name,
+             p1.name as requester_name,
+             p2.name as recipient_name,
+             p1.email as requester_email,
+             p2.email as recipient_email
+      FROM booking_swaps s
+      JOIN bookings rb ON rb.id = s.requester_booking_id
+      JOIN bookings tb ON tb.id = s.recipient_booking_id
+      JOIN instruments i1 ON i1.id = rb.instrument_id
+      JOIN instruments i2 ON i2.id = tb.instrument_id
+      JOIN profiles p1 ON p1.id = s.requester_user_id
+      JOIN profiles p2 ON p2.id = s.recipient_user_id
+    `;
+    const params = [];
+    const conditions = [];
+    if (req.user.role !== 'admin') {
+      conditions.push('(s.requester_user_id = $1 OR s.recipient_user_id = $1)');
+      params.push(req.user.id);
+    }
+    if (status) {
+      params.push(status);
+      conditions.push(`s.status = $${params.length}`);
+    }
+    if (conditions.length) sql += ' WHERE ' + conditions.join(' AND ');
+    sql += ' ORDER BY s.created_at DESC';
+
+    const { rows } = await pool.query(sql, params);
+    res.json({ data: rows, error: null });
+  } catch (err) {
+    console.error('list swaps error:', err);
+    res.status(400).json({ data: null, error: { message: err.message } });
+  }
+});
+
+app.get('/api/booking-swaps/eligible', requireAuth, async (req, res) => {
+  try {
+    const { bookingId } = req.query;
+    if (!bookingId) throw new Error('bookingId required');
+    const { rows: myRows } = await pool.query('SELECT * FROM bookings WHERE id = $1', [bookingId]);
+    if (!myRows.length) throw new Error('Booking not found');
+    const myBooking = myRows[0];
+
+    if (req.user.role !== 'admin' && myBooking.user_id !== req.user.id) throw new Error('Not authorized');
+
+    const { rows } = await pool.query(
+      `SELECT b.*, i.name as instrument_name, p.name as user_name
+       FROM bookings b
+       JOIN instruments i ON i.id = b.instrument_id
+       JOIN profiles p ON p.id = b.user_id
+       WHERE b.id != $1
+         AND b.start_time > now()
+         AND lower(b.status) NOT IN ('cancelled', 'denied')
+         AND NOT EXISTS (
+           SELECT 1 FROM booking_swaps s
+           WHERE s.status IN ('pending', 'accepted')
+             AND (s.requester_booking_id = b.id OR s.recipient_booking_id = b.id)
+         )
+       ORDER BY b.start_time ASC`,
+      [bookingId]
+    );
+    res.json({ data: rows, error: null });
+  } catch (err) {
+    console.error('eligible swaps error:', err);
+    res.status(400).json({ data: null, error: { message: err.message } });
+  }
+});
 
 // Storage
 const upload = multer({ storage: multer.memoryStorage() });

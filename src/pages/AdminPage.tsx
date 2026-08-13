@@ -14,6 +14,7 @@ import BookingHistoryManagement from "../components/admin/BookingHistoryManageme
 import S3SettingsManagement from "../components/admin/S3SettingsManagement";
 import BookingSettings from "../components/admin/BookingSettings";
 import SiteAssetsSettings from "../components/admin/SiteAssetsSettings";
+import { SwapRequestsManagement } from "../components/admin/SwapRequestsManagement";
 import { Navigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 
@@ -46,7 +47,7 @@ const AdminPage: React.FC = () => {
       )}
       
       <Tabs value={activeTab} onValueChange={handleTabChange}>
-        <TabsList className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-11 gap-2 w-full max-w-7xl h-auto p-1">
+        <TabsList className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-12 gap-2 w-full max-w-7xl h-auto p-1">
           <TabsTrigger value="pending-bookings" className="px-2 py-2 text-sm" onClick={() => setActiveTab("pending-bookings")}>Pending</TabsTrigger>
           <TabsTrigger value="booking-history" className="px-2 py-2 text-sm" onClick={() => setActiveTab("booking-history")}>History</TabsTrigger>
           <TabsTrigger value="users" className="px-2 py-2 text-sm" onClick={() => setActiveTab("users")}>Users</TabsTrigger>
@@ -57,6 +58,7 @@ const AdminPage: React.FC = () => {
           <TabsTrigger value="email-templates" className="px-2 py-2 text-sm" onClick={() => setActiveTab("email-templates")}>Templates</TabsTrigger>
           <TabsTrigger value="storage" className="px-2 py-2 text-sm" onClick={() => setActiveTab("storage")}>Storage</TabsTrigger>
           <TabsTrigger value="booking-settings" className="px-2 py-2 text-sm" onClick={() => setActiveTab("booking-settings")}>Booking</TabsTrigger>
+          <TabsTrigger value="swap-requests" className="px-2 py-2 text-sm" onClick={() => setActiveTab("swap-requests")}>Swaps</TabsTrigger>
           <TabsTrigger value="site-assets" className="px-2 py-2 text-sm" onClick={() => setActiveTab("site-assets")}>Branding</TabsTrigger>
         </TabsList>
         
@@ -98,6 +100,10 @@ const AdminPage: React.FC = () => {
 
         <TabsContent value="booking-settings" className="mt-6">
           {activeTab === "booking-settings" && <BookingSettings />}
+        </TabsContent>
+
+        <TabsContent value="swap-requests" className="mt-6">
+          {activeTab === "swap-requests" && <SwapRequestsManagement />}
         </TabsContent>
 
         <TabsContent value="site-assets" className="mt-6">

@@ -9,11 +9,12 @@ import { toast } from "sonner";
 import { BookingCard } from "../components/bookings/BookingCard";
 import { BookingSearch } from "../components/bookings/BookingSearch";
 import { BookingSortDropdown, SortOption } from "../components/bookings/BookingSortDropdown";
+import { SwapRequestsPanel } from "../components/bookings/SwapRequestsPanel";
 import { Booking } from "../types";
 
 const MyBookingsPage: React.FC = () => {
   const { user } = useAuth();
-  const { bookings, isLoading, addCommentToBooking, deleteBooking, deleteCommentFromBooking } = useOptimizedBooking();
+  const { bookings, isLoading, addCommentToBooking, deleteBooking, deleteCommentFromBooking, refreshData } = useOptimizedBooking();
   const [commentContent, setCommentContent] = useState<{ [key: string]: string }>({});
   const [addingComment, setAddingComment] = useState<{ [key: string]: boolean }>({});
   const [deletingBooking, setDeletingBooking] = useState<{ [key: string]: boolean }>({});
@@ -231,6 +232,8 @@ const MyBookingsPage: React.FC = () => {
                 onAddComment={() => handleAddComment(booking.id)}
                 onDeleteComment={(commentId) => handleDeleteComment(booking.id, commentId)}
                 onDeleteBooking={() => handleDeleteBooking(booking.id)}
+                showSwapButton
+                onSwapRequested={refreshData}
               />
             ))
           )}
@@ -266,6 +269,8 @@ const MyBookingsPage: React.FC = () => {
                 onAddComment={() => handleAddComment(booking.id)}
                 onDeleteComment={(commentId) => handleDeleteComment(booking.id, commentId)}
                 onDeleteBooking={() => handleDeleteBooking(booking.id)}
+                showSwapButton
+                onSwapRequested={refreshData}
               />
             ))
           )}
@@ -306,6 +311,8 @@ const MyBookingsPage: React.FC = () => {
           )}
         </TabsContent>
       </Tabs>
+
+      <SwapRequestsPanel />
     </div>
   );
 };

@@ -84,6 +84,33 @@ export interface Comment {
   createdAt: string;
 }
 
+export interface BookingSwap {
+  id: string;
+  requesterBookingId: string;
+  recipientBookingId: string;
+  requesterUserId: string;
+  recipientUserId: string;
+  status: 'pending' | 'accepted' | 'declined' | 'approved' | 'denied' | 'cancelled';
+  adminNotes?: string | null;
+  requestedAt?: string;
+  respondedAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  // Join fields
+  requesterName?: string;
+  requesterEmail?: string;
+  recipientName?: string;
+  recipientEmail?: string;
+  requesterInstrumentName?: string;
+  requesterPurpose?: string;
+  requesterStart?: string;
+  requesterEnd?: string;
+  recipientInstrumentName?: string;
+  recipientPurpose?: string;
+  recipientStart?: string;
+  recipientEnd?: string;
+}
+
 export interface BookingStatistics {
   totalBookings: number;
   instrumentUsage: Array<{

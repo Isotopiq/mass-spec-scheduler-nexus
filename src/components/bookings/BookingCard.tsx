@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
-import { Calendar, Clock, FileText, MessageCircle, Loader2, Trash2, X } from "lucide-react";
+import { Calendar, Clock, FileText, MessageCircle, Loader2, Trash2, X, ArrowLeftRight } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import {
@@ -19,6 +19,7 @@ import {
   AlertDialogTrigger,
 } from "../ui/alert-dialog";
 import SequenceFileLink from "../calendar/SequenceFileLink";
+import { SwapRequestDialog } from "./SwapRequestDialog";
 
 interface BookingCardProps {
   booking: any;
@@ -31,6 +32,8 @@ interface BookingCardProps {
   onAddComment: () => void;
   onDeleteComment: (commentId: string) => void;
   onDeleteBooking: () => void;
+  showSwapButton?: boolean;
+  onSwapRequested?: () => void;
 }
 
 const getStatusVariant = (status: string) => {
@@ -72,6 +75,8 @@ export const BookingCard: React.FC<BookingCardProps> = ({
   onAddComment,
   onDeleteComment,
   onDeleteBooking,
+  showSwapButton = false,
+  onSwapRequested,
 }) => (
   <Card className="mb-4">
     <CardHeader>
@@ -87,6 +92,13 @@ export const BookingCard: React.FC<BookingCardProps> = ({
           <Badge variant={getStatusVariant(booking.status)}>
             {getStatusText(booking.status)}
           </Badge>
+          {showSwapButton && (
+            <SwapRequestDialog bookingId={booking.id} onRequested={onSwapRequested}>
+              <Button variant="outline" size="sm" title="Request swap">
+                <ArrowLeftRight className="h-4 w-4" />
+              </Button>
+            </SwapRequestDialog>
+          )}
           {user?.role === "admin" && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
