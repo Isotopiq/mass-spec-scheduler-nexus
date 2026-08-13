@@ -358,15 +358,26 @@ async function validateMaintenanceEvent(action, values, filters) {
   if (!instrumentId || !startTime || !endTime) return;
   if (['cancelled', 'completed'].includes(String(status || '').toLowerCase())) return;
 
-  const overlapQuery = `
+  const bookingOverlapQuery = `
     SELECT 1 FROM bookings
     WHERE instrument_id = $1
       AND lower(status) NOT IN ('cancelled', 'denied')
       AND start_time < $2 AND end_time > $3
     LIMIT 1
   `;
-  const { rows } = await pool.query(overlapQuery, [instrumentId, endTime, startTime]);
+  const { rows } = await pool.query(bookingOverlapQuery, [instrumentId, endTime, startTime]);
   if (rows.length) throw new Error('Maintenance conflict: this instrument is already booked during the selected time window.');
+
+  const maintenanceOverlapQuery = `
+    SELECT 1 FROM instrument_maintenance
+    WHERE instrument_id = $1
+      AND lower(status) NOT IN ('cancelled', 'completed')
+      AND ($4::uuid IS NULL OR id <> $4)
+      AND start_time < $2 AND end_time > $3
+    LIMIT 1
+  `;
+  const { rows: maintRows } = await pool.query(maintenanceOverlapQuery, [instrumentId, endTime, startTime, maintenanceId]);
+  if (maintRows.length) throw new Error('Maintenance conflict: another maintenance event already exists during this time window.');
 }
 
 async function handleRestQuery(req, res) {

@@ -342,7 +342,21 @@ const BookingForm: React.FC<BookingFormProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto overflow-x-hidden">
+      <DialogContent
+        className="w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto overflow-x-hidden"
+        onPointerDownOutside={(e) => {
+          const target = e.target as HTMLElement;
+          if (target.closest('[data-radix-select-viewport]')) {
+            e.preventDefault();
+          }
+        }}
+        onInteractOutside={(e) => {
+          const target = e.target as HTMLElement;
+          if (target.closest('[data-radix-select-viewport]')) {
+            e.preventDefault();
+          }
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Create New Booking</DialogTitle>
         </DialogHeader>
@@ -527,7 +541,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
                 <SelectTrigger><SelectValue placeholder="Weeks" /></SelectTrigger>
                 <SelectContent>
                   {[1,2,3,4,5,6,7,8,9,10,11,12].map(n => (
-                    <SelectItem key={n} value={String(n)}>{n} {n === 1 ? 'week' : 'weeks'}</SelectItem>
+                    <SelectItem key={n} value={String(n)}>{`${n} ${n === 1 ? 'week' : 'weeks'}`}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>

@@ -37,6 +37,7 @@ export const MaintenanceCalendarManagement: React.FC = () => {
   const [items, setItems] = useState<Maintenance[]>([]);
   const [instruments, setInstruments] = useState<Instrument[]>([]);
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     instrument_id: '',
     start: '',
@@ -64,8 +65,10 @@ export const MaintenanceCalendarManagement: React.FC = () => {
 
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!form.instrument_id || !form.start || !form.end) return;
+    setSaving(true);
     try {
-      await supabase.from('instrument_maintenance').insert({
+      const { error } = await supabase.from('instrument_maintenance').insert({
         instrument_id: form.instrument_id,
         start_time: new Date(form.start).toISOString(),
         end_time: new Date(form.end).toISOString(),
@@ -73,15 +76,18 @@ export const MaintenanceCalendarManagement: React.FC = () => {
         description: form.description,
         status: form.status
       });
+      if (error) throw new Error(error.message);
       toast.success('Maintenance scheduled');
       setForm({ instrument_id: '', start: '', end: '', type: 'maintenance', description: '', status: 'scheduled' });
       load();
     } catch (e: any) { toast.error(e.message); }
+    finally { setSaving(false); }
   };
 
   const updateStatus = async (id: string, status: string) => {
     try {
-      await supabase.from('instrument_maintenance').update({ status }).eq('id', id);
+      const { error } = await supabase.from('instrument_maintenance').update({ status }).eq('id', id);
+      if (error) throw new Error(error.message);
       toast.success('Status updated');
       load();
     } catch (e: any) { toast.error(e.message); }
@@ -89,7 +95,8 @@ export const MaintenanceCalendarManagement: React.FC = () => {
 
   const deleteItem = async (id: string) => {
     try {
-      await supabase.from('instrument_maintenance').delete().eq('id', id);
+      const { error } = await supabase.from('instrument_maintenance').delete().eq('id', id);
+      if (error) throw new Error(error.message);
       toast.success('Maintenance deleted');
       load();
     } catch (e: any) { toast.error(e.message); }
@@ -134,7 +141,9 @@ export const MaintenanceCalendarManagement: React.FC = () => {
               <Textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Optional details" />
             </div>
             <div className="md:col-span-6">
-              <Button type="submit" disabled={loading || !form.instrument_id}>Schedule</Button>
+              <Button type="submit" disabled={saving || !form.instrument_id || !form.start || !form.end}>
+                {saving ? 'Scheduling...' : 'Schedule'}
+              </Button>
             </div>
           </form>
         </CardContent>

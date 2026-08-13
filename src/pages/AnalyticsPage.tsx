@@ -1,5 +1,5 @@
 
-import React from "react";
+import React, { useState } from "react";
 import {
   BarChart,
   Bar,
@@ -21,6 +21,7 @@ import { exportAnalyticsToPDF } from "../utils/pdfExport";
 
 const AnalyticsPage: React.FC = () => {
   const { statistics } = useOptimizedBooking();
+  const [activeTab, setActiveTab] = useState("usage");
 
   // Colors for the charts
   const COLORS = ["#9b87f5", "#7E69AB", "#6E59A5", "#D6BCFA", "#E5DEFF"];
@@ -88,12 +89,12 @@ const AnalyticsPage: React.FC = () => {
         <Card><CardContent className="pt-6"><p className="text-sm text-muted-foreground">No-shows</p><p className="text-3xl font-bold">{statistics.noShowCount}</p></CardContent></Card>
       </div>
 
-      <Tabs defaultValue="usage" className="w-full">
-        <TabsList>
-          <TabsTrigger value="usage">Usage Analysis</TabsTrigger>
-          <TabsTrigger value="users">User Analytics</TabsTrigger>
-          <TabsTrigger value="trends">Trends</TabsTrigger>
-          <TabsTrigger value="status">Status</TabsTrigger>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="flex flex-wrap h-auto gap-2 p-1">
+          <TabsTrigger value="usage" onClick={() => setActiveTab("usage")}>Usage Analysis</TabsTrigger>
+          <TabsTrigger value="users" onClick={() => setActiveTab("users")}>User Analytics</TabsTrigger>
+          <TabsTrigger value="trends" onClick={() => setActiveTab("trends")}>Trends</TabsTrigger>
+          <TabsTrigger value="status" onClick={() => setActiveTab("status")}>Status</TabsTrigger>
         </TabsList>
         
         <TabsContent value="usage" className="pt-6">

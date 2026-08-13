@@ -49,7 +49,9 @@ export const BulkImportExport: React.FC = () => {
       const a = document.createElement('a');
       a.href = url;
       a.download = `${type}.xlsx`;
+      document.body.appendChild(a);
       a.click();
+      a.remove();
       window.URL.revokeObjectURL(url);
       toast.success(`${type} exported`);
     } catch (err: any) { toast.error(err.message); }
