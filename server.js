@@ -5,6 +5,7 @@ import jwt from 'jsonwebtoken';
 import cors from 'cors';
 import multer from 'multer';
 import nodemailer from 'nodemailer';
+import XLSX from 'xlsx';
 import dotenv from 'dotenv';
 import pgFormat from 'pg-format';
 import * as fs from 'fs';
@@ -29,6 +30,7 @@ const pool = new Pool({ connectionString: DATABASE_URL });
 
 const ALLOWED_TABLES = {
   app_settings: { select: 'all', insert: 'admin', update: 'admin', delete: 'admin', restrictedColumns: [] },
+  booking_templates: { select: 'owner-or-admin', insert: 'authenticated', update: 'owner-or-admin', delete: 'owner-or-admin', restrictedColumns: [] },
   bookings: { select: 'all', insert: 'authenticated', update: 'owner-or-admin', delete: 'owner-or-admin', restrictedColumns: [] },
   booking_swaps: { select: 'admin', insert: 'authenticated', update: 'admin', delete: 'admin', restrictedColumns: [] },
   booking_waitlist: { select: 'owner-or-admin', insert: 'authenticated', update: 'owner-or-admin', delete: 'owner-or-admin', restrictedColumns: [] },
@@ -1532,6 +1534,172 @@ app.post('/api/functions/s3-replace-sequence', requireAuth, upload.single('file'
     res.json({ key, name: req.file.originalname, size: req.file.size, uploadedAt: new Date().toISOString() });
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+// Bulk import / export (admin only)
+const importUpload = multer({ dest: '/tmp' });
+
+app.post('/api/admin/import/:type', requireAuth, requireAdmin, importUpload.single('file'), async (req, res) => {
+  try {
+    const type = req.params.type;
+    if (!req.file) throw new Error('No file uploaded');
+    const fileBuf = fs.readFileSync(req.file.path);
+    const wb = XLSX.read(fileBuf, { type: 'buffer' });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+    fs.unlinkSync(req.file.path);
+
+    let inserted = 0;
+    if (type === 'users') {
+      for (const row of rows) {
+        const email = String(row.email || row.Email || '').trim();
+        const name = String(row.name || row.Name || '').trim();
+        if (!email || !name) continue;
+        const role = String(row.role || row.Role || 'user').toLowerCase();
+        const department = String(row.department || row.Department || '');
+        const tempPassword = Math.random().toString(36).slice(-10);
+        const passwordHash = await bcrypt.hash(tempPassword, 10);
+        await pool.query(
+          `INSERT INTO profiles (email, name, role, department, password_hash)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name, role = EXCLUDED.role, department = EXCLUDED.department`,
+          [email, name, role, department, passwordHash]
+        );
+        inserted++;
+      }
+    } else if (type === 'instruments') {
+      for (const row of rows) {
+        const name = String(row.name || row.Name || '').trim();
+        if (!name) continue;
+        const description = String(row.description || row.Description || '');
+        const status = String(row.status || row.Status || 'available').toLowerCase();
+        const location = String(row.location || row.Location || '');
+        const specifications = String(row.specifications || row.Specifications || '');
+        const existing = await pool.query('SELECT id FROM instruments WHERE name = $1 LIMIT 1', [name]);
+        if (existing.rows.length) {
+          await pool.query('UPDATE instruments SET description = $1, status = $2, location = $3, specifications = $4 WHERE id = $5', [description, status, location, specifications, existing.rows[0].id]);
+        } else {
+          await pool.query('INSERT INTO instruments (name, description, status, location, specifications) VALUES ($1, $2, $3, $4, $5)', [name, description, status, location, specifications]);
+        }
+        inserted++;
+      }
+    } else {
+      throw new Error('Invalid import type');
+    }
+    res.json({ data: { inserted }, error: null });
+  } catch (err) {
+    console.error('bulk import error:', err);
+    res.status(400).json({ data: null, error: { message: err.message } });
+  }
+});
+
+app.get('/api/admin/export/:type', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const type = req.params.type;
+    let rows = [];
+    if (type === 'bookings') {
+      const { rows: data } = await pool.query(
+        `SELECT b.id, p.name as user_name, p.email as user_email, i.name as instrument_name,
+                b.start_time, b.end_time, b.purpose, b.details, b.status, b.created_at
+         FROM bookings b
+         JOIN profiles p ON p.id = b.user_id
+         JOIN instruments i ON i.id = b.instrument_id
+         ORDER BY b.start_time DESC`
+      );
+      rows = data;
+    } else if (type === 'users') {
+      const { rows: data } = await pool.query('SELECT id, name, email, role, department, created_at FROM profiles ORDER BY name');
+      rows = data;
+    } else if (type === 'instruments') {
+      const { rows: data } = await pool.query('SELECT id, name, description, status, location, created_at FROM instruments ORDER BY name');
+      rows = data;
+    } else {
+      throw new Error('Invalid export type');
+    }
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, type);
+    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    res.setHeader('Content-Disposition', `attachment; filename="${type}.xlsx"`);
+    res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.send(buf);
+  } catch (err) {
+    console.error('bulk export error:', err);
+    res.status(400).json({ data: null, error: { message: err.message } });
+  }
+});
+
+// Recurring bookings
+app.post('/api/bookings/recurring', requireAuth, async (req, res) => {
+  try {
+    const { instrumentId, startTime, endTime, purpose, details, repeatWeeks } = req.body;
+    const weeks = parseInt(repeatWeeks || '1', 10);
+    if (!instrumentId || !startTime || !endTime || weeks < 1 || weeks > 52) throw new Error('Invalid recurring booking request');
+
+    const created = [];
+    const skipped = [];
+    const firstStart = new Date(startTime);
+    const firstEnd = new Date(endTime);
+    const durationMs = firstEnd.getTime() - firstStart.getTime();
+
+    let parentId = null;
+    for (let i = 0; i < weeks; i++) {
+      const s = new Date(firstStart.getTime() + i * 7 * 24 * 60 * 60 * 1000);
+      const e = new Date(s.getTime() + durationMs);
+      const instStart = s.toISOString();
+      const instEnd = e.toISOString();
+      try {
+        const hasConflict = await findBookingConflict(null, instStart, instEnd, instrumentId, []);
+        if (hasConflict) throw new Error('Booking conflict');
+        const { rows } = await pool.query(
+          `INSERT INTO bookings (user_id, instrument_id, start_time, end_time, purpose, details, status, recurrence_rule, parent_booking_id)
+           VALUES ($1, $2, $3, $4, $5, $6, 'confirmed', $7, $8) RETURNING *`,
+          [req.user.id, instrumentId, instStart, instEnd, purpose || 'Recurring booking', details, `weekly:${weeks}`, parentId]
+        );
+        created.push(rows[0]);
+        if (!parentId) parentId = rows[0].id;
+      } catch (e) {
+        skipped.push({ start: instStart, error: e.message });
+      }
+    }
+    res.json({ data: { created, skipped, count: created.length }, error: null });
+  } catch (err) {
+    console.error('recurring booking error:', err);
+    res.status(400).json({ data: null, error: { message: err.message } });
+  }
+});
+
+// Check-in / check-out (admin initiated)
+app.post('/api/bookings/:id/check-in', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const bookingId = req.params.id;
+    const now = new Date().toISOString();
+    const { rows } = await pool.query(
+      'UPDATE bookings SET checked_in_at = $1, actual_start_time = $1, status = \'in_progress\' WHERE id = $2 RETURNING *',
+      [now, bookingId]
+    );
+    if (!rows.length) throw new Error('Booking not found');
+    res.json({ data: rows[0], error: null });
+  } catch (err) {
+    console.error('check-in error:', err);
+    res.status(400).json({ data: null, error: { message: err.message } });
+  }
+});
+
+app.post('/api/bookings/:id/check-out', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const bookingId = req.params.id;
+    const now = new Date().toISOString();
+    const { rows } = await pool.query(
+      'UPDATE bookings SET checked_out_at = $1, actual_end_time = $1 WHERE id = $2 RETURNING *',
+      [now, bookingId]
+    );
+    if (!rows.length) throw new Error('Booking not found');
+    res.json({ data: rows[0], error: null });
+  } catch (err) {
+    console.error('check-out error:', err);
+    res.status(400).json({ data: null, error: { message: err.message } });
   }
 });
 

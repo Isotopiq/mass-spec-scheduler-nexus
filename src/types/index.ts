@@ -129,4 +129,8 @@ export interface BookingStatistics {
     week: string;
     bookingCount: number;
   }>;
+  statusDistribution: Array<{ name: string; value: number }>;
+  noShowCount: number;
+  checkInCount: number;
+  averageDurationHours: number;
 }

@@ -48,7 +48,8 @@ const BookingForm: React.FC<BookingFormProps> = ({
     purpose: "",
     details: "",
     sampleNumber: "",
-    sampleRunTime: ""
+    sampleRunTime: "",
+    repeatWeeks: "1"
   });
 
   const selectedInstrument = instruments.find(i => i.id === formData.selectedInstrument);
@@ -169,9 +170,6 @@ const BookingForm: React.FC<BookingFormProps> = ({
 
       setShowWaitlistOffer(false);
 
-      // Always set status as pending for new bookings
-      const initialStatus = "pending";
-
       // Build details with sample information
       let detailsText = formData.details;
       if (formData.sampleNumber && formData.sampleRunTime) {
@@ -182,6 +180,46 @@ const BookingForm: React.FC<BookingFormProps> = ({
       } else if (formData.sampleNumber) {
         detailsText += `\n\nSample Number: ${formData.sampleNumber}`;
       }
+
+      const repeatWeeks = parseInt(formData.repeatWeeks || '1', 10);
+
+      if (repeatWeeks > 1) {
+        const { data: sess } = await supabase.auth.getSession();
+        const token = sess.session?.access_token;
+        const resp = await fetch('/api/bookings/recurring', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            instrumentId: selectedInstrument.id,
+            startTime: startDate.toISOString(),
+            endTime: endDate.toISOString(),
+            purpose: formData.purpose,
+            details: detailsText,
+            repeatWeeks
+          })
+        });
+        const json = await resp.json();
+        if (!resp.ok) throw new Error(json.error?.message || 'Recurring booking failed');
+        toast.success(`Created ${json.data.count} recurring bookings`);
+        onOpenChange(false);
+        setPendingFile(null);
+        setFormData({
+          selectedInstrument: "",
+          selectedDate: new Date(),
+          selectedTime: "09:00",
+          duration: "1",
+          purpose: "",
+          details: "",
+          sampleNumber: "",
+          sampleRunTime: "",
+          repeatWeeks: "1"
+        });
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Always set status as pending for new bookings
+      const initialStatus = "pending";
 
       console.log("Submitting booking with data:", {
         userId: user.id,
@@ -246,7 +284,8 @@ const BookingForm: React.FC<BookingFormProps> = ({
         purpose: "",
         details: "",
         sampleNumber: "",
-        sampleRunTime: ""
+        sampleRunTime: "",
+        repeatWeeks: "1"
       });
     } catch (error: any) {
       console.error("Error creating booking:", error);
@@ -290,7 +329,8 @@ const BookingForm: React.FC<BookingFormProps> = ({
         purpose: "",
         details: "",
         sampleNumber: "",
-        sampleRunTime: ""
+        sampleRunTime: "",
+        repeatWeeks: "1"
       });
     } catch (error: any) {
       console.error('Error joining waitlist:', error);
@@ -476,6 +516,23 @@ const BookingForm: React.FC<BookingFormProps> = ({
               </p>
             </div>
           )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="repeatWeeks">Repeat weekly for</Label>
+              <Select
+                value={formData.repeatWeeks}
+                onValueChange={(value) => setFormData(prev => ({ ...prev, repeatWeeks: value }))}
+              >
+                <SelectTrigger><SelectValue placeholder="Weeks" /></SelectTrigger>
+                <SelectContent>
+                  {[1,2,3,4,5,6,7,8,9,10,11,12].map(n => (
+                    <SelectItem key={n} value={String(n)}>{n} {n === 1 ? 'week' : 'weeks'}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
 
           <div>
             <Label htmlFor="purpose">Purpose</Label>

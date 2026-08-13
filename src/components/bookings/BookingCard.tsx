@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
-import { Calendar, Clock, FileText, MessageCircle, Loader2, Trash2, X, ArrowLeftRight } from "lucide-react";
+import { Calendar, Clock, FileText, MessageCircle, Loader2, Trash2, X, ArrowLeftRight, LogIn, LogOut } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import {
@@ -77,7 +77,30 @@ export const BookingCard: React.FC<BookingCardProps> = ({
   onDeleteBooking,
   showSwapButton = false,
   onSwapRequested,
-}) => (
+}) => {
+  const handleCheckIn = async () => {
+    try {
+      const token = JSON.parse(localStorage.getItem('sb-auth-token') || '{}')?.access_token;
+      const res = await fetch(`/api/bookings/${booking.id}/check-in`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error?.message || 'Check-in failed');
+      toast.success('Checked in');
+      if (onSwapRequested) onSwapRequested();
+    } catch (e: any) { toast.error(e.message); }
+  };
+
+  const handleCheckOut = async () => {
+    try {
+      const token = JSON.parse(localStorage.getItem('sb-auth-token') || '{}')?.access_token;
+      const res = await fetch(`/api/bookings/${booking.id}/check-out`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error?.message || 'Check-out failed');
+      toast.success('Checked out');
+      if (onSwapRequested) onSwapRequested();
+    } catch (e: any) { toast.error(e.message); }
+  };
+
+  return (
   <Card className="mb-4">
     <CardHeader>
       <div className="flex justify-between items-start">
@@ -98,6 +121,12 @@ export const BookingCard: React.FC<BookingCardProps> = ({
                 <ArrowLeftRight className="h-4 w-4" />
               </Button>
             </SwapRequestDialog>
+          )}
+          {user?.role === "admin" && booking.status === "confirmed" && !booking.checked_in_at && (
+            <Button variant="outline" size="sm" onClick={handleCheckIn} title="Check in"><LogIn className="h-4 w-4" /></Button>
+          )}
+          {user?.role === "admin" && booking.checked_in_at && !booking.checked_out_at && (
+            <Button variant="outline" size="sm" onClick={handleCheckOut} title="Check out"><LogOut className="h-4 w-4" /></Button>
           )}
           {user?.role === "admin" && (
             <AlertDialog>
@@ -247,4 +276,5 @@ export const BookingCard: React.FC<BookingCardProps> = ({
       </div>
     </CardContent>
   </Card>
-);
+  );
+};

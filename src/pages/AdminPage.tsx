@@ -18,6 +18,7 @@ import { SwapRequestsManagement } from "../components/admin/SwapRequestsManageme
 import { WaitlistPanel } from "../components/bookings/WaitlistPanel";
 import { QuotaManagement } from "../components/admin/QuotaManagement";
 import { MaintenanceCalendarManagement } from "../components/admin/MaintenanceCalendarManagement";
+import { BulkImportExport } from "../components/admin/BulkImportExport";
 import { Navigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 
@@ -50,7 +51,7 @@ const AdminPage: React.FC = () => {
       )}
       
       <Tabs value={activeTab} onValueChange={handleTabChange}>
-        <TabsList className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-[repeat(15,minmax(0,1fr))] gap-2 w-full max-w-7xl h-auto p-1">
+        <TabsList className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-[repeat(16,minmax(0,1fr))] gap-2 w-full max-w-7xl h-auto p-1">
           <TabsTrigger value="pending-bookings" className="px-2 py-2 text-sm" onClick={() => setActiveTab("pending-bookings")}>Pending</TabsTrigger>
           <TabsTrigger value="booking-history" className="px-2 py-2 text-sm" onClick={() => setActiveTab("booking-history")}>History</TabsTrigger>
           <TabsTrigger value="users" className="px-2 py-2 text-sm" onClick={() => setActiveTab("users")}>Users</TabsTrigger>
@@ -65,6 +66,7 @@ const AdminPage: React.FC = () => {
           <TabsTrigger value="waitlist" className="px-2 py-2 text-sm" onClick={() => setActiveTab("waitlist")}>Waitlist</TabsTrigger>
           <TabsTrigger value="quotas" className="px-2 py-2 text-sm" onClick={() => setActiveTab("quotas")}>Quotas</TabsTrigger>
           <TabsTrigger value="maintenance" className="px-2 py-2 text-sm" onClick={() => setActiveTab("maintenance")}>Maintenance</TabsTrigger>
+          <TabsTrigger value="bulk" className="px-2 py-2 text-sm" onClick={() => setActiveTab("bulk")}>Import / Export</TabsTrigger>
           <TabsTrigger value="site-assets" className="px-2 py-2 text-sm" onClick={() => setActiveTab("site-assets")}>Branding</TabsTrigger>
         </TabsList>
         
@@ -122,6 +124,10 @@ const AdminPage: React.FC = () => {
 
         <TabsContent value="maintenance" className="mt-6">
           {activeTab === "maintenance" && <MaintenanceCalendarManagement />}
+        </TabsContent>
+
+        <TabsContent value="bulk" className="mt-6">
+          {activeTab === "bulk" && <BulkImportExport />}
         </TabsContent>
 
         <TabsContent value="site-assets" className="mt-6">

@@ -81,11 +81,19 @@ const AnalyticsPage: React.FC = () => {
         </Button>
       </div>
       
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card><CardContent className="pt-6"><p className="text-sm text-muted-foreground">Total Bookings</p><p className="text-3xl font-bold">{statistics.totalBookings}</p></CardContent></Card>
+        <Card><CardContent className="pt-6"><p className="text-sm text-muted-foreground">Avg Duration</p><p className="text-3xl font-bold">{statistics.averageDurationHours}h</p></CardContent></Card>
+        <Card><CardContent className="pt-6"><p className="text-sm text-muted-foreground">Check-ins</p><p className="text-3xl font-bold">{statistics.checkInCount}</p></CardContent></Card>
+        <Card><CardContent className="pt-6"><p className="text-sm text-muted-foreground">No-shows</p><p className="text-3xl font-bold">{statistics.noShowCount}</p></CardContent></Card>
+      </div>
+
       <Tabs defaultValue="usage" className="w-full">
         <TabsList>
           <TabsTrigger value="usage">Usage Analysis</TabsTrigger>
           <TabsTrigger value="users">User Analytics</TabsTrigger>
           <TabsTrigger value="trends">Trends</TabsTrigger>
+          <TabsTrigger value="status">Status</TabsTrigger>
         </TabsList>
         
         <TabsContent value="usage" className="pt-6">
@@ -255,6 +263,40 @@ const AnalyticsPage: React.FC = () => {
               </ResponsiveContainer>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="status" className="pt-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <Card>
+              <CardHeader><CardTitle className="text-lg">Booking Status Distribution</CardTitle></CardHeader>
+              <CardContent className="h-80">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={statistics.statusDistribution}
+                      cx="50%" cy="50%" labelLine={false} outerRadius={100}
+                      fill="#8884d8" dataKey="value" nameKey="name" label={renderCustomLabel}
+                    >
+                      {statistics.statusDistribution.map((entry: any, index: number) => (
+                        <Cell key={`cell-status-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader><CardTitle className="text-lg">Operational Metrics</CardTitle></CardHeader>
+              <CardContent className="space-y-4">
+                <div><h3 className="text-sm text-muted-foreground">Confirmed bookings</h3><p className="text-2xl font-bold">{statistics.statusDistribution.find(s => s.name === 'confirmed')?.value || 0}</p></div>
+                <div><h3 className="text-sm text-muted-foreground">Pending approvals</h3><p className="text-2xl font-bold">{statistics.statusDistribution.find(s => s.name === 'pending')?.value || 0}</p></div>
+                <div><h3 className="text-sm text-muted-foreground">No-shows</h3><p className="text-2xl font-bold">{statistics.noShowCount}</p></div>
+                <div><h3 className="text-sm text-muted-foreground">Checked in</h3><p className="text-2xl font-bold">{statistics.checkInCount}</p></div>
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
       </Tabs>
     </div>

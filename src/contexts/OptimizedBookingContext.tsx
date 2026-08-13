@@ -671,11 +671,36 @@ export const OptimizedBookingProvider: React.FC<{ children: React.ReactNode }> =
 
     console.log('Statistics calculated - instrumentUsage:', instrumentUsage.map(i => ({ name: i.instrumentName, hours: i.totalHours, bookings: i.bookingCount })));
 
+    const statusDistribution = ['pending', 'confirmed', 'in_progress', 'cancelled', 'denied'].map(name => ({
+      name,
+      value: bookings.filter(b => String(b.status).toLowerCase() === name).length
+    })).filter(s => s.value > 0);
+
+    const noShowCount = bookings.filter(b => {
+      const start = new Date(b.start);
+      const end = new Date(b.end);
+      const now = new Date();
+      return now > end && !b.checked_in_at && String(b.status).toLowerCase() === 'confirmed';
+    }).length;
+
+    const checkInCount = bookings.filter(b => b.checked_in_at).length;
+
+    const totalDurationHours = bookings.reduce((sum, b) => {
+      const start = new Date(b.start);
+      const end = new Date(b.end);
+      return sum + (end.getTime() - start.getTime()) / (1000 * 60 * 60);
+    }, 0);
+    const averageDurationHours = totalBookings ? Math.round((totalDurationHours / totalBookings) * 100) / 100 : 0;
+
     return {
       totalBookings,
       instrumentUsage,
       userBookings,
-      weeklyUsage
+      weeklyUsage,
+      statusDistribution,
+      noShowCount,
+      checkInCount,
+      averageDurationHours
     };
   }, [bookings, instruments, users]);
 
