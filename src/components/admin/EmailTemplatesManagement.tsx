@@ -188,7 +188,7 @@ const EmailTemplatesManagement: React.FC = () => {
 </body>
 </html>`
         });
-      } else if (activeTemplate === "comment_added") {
+      } else if (activeTemplate === "comment_notification") {
         setFormData({
           subject: "New Comment on Your Booking: {{instrumentName}}",
           htmlContent: `<!DOCTYPE html>
@@ -318,6 +318,30 @@ const EmailTemplatesManagement: React.FC = () => {
 </body>
 </html>`
         });
+      } else {
+        setFormData({
+          subject: `${activeTemplate.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}: MSLab Scheduler`,
+          htmlContent: `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>${activeTemplate.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f3f4f6;font-family:Arial,sans-serif;">
+  <div style="text-align:center;padding:24px 0;background:#ffffff;border-bottom:1px solid #e5e7eb;">
+    <img src="{{logoUrl}}" alt="MSLab Scheduler" style="max-height:64px;max-width:200px;border:0;display:block;margin:0 auto;">
+  </div>
+  <div style="max-width:600px;margin:0 auto;background:#ffffff;padding:32px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
+    <h1 style="color:#111827;font-size:24px;margin:0 0 16px;">${activeTemplate.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}</h1>
+    <p style="color:#4b5563;font-size:16px;line-height:1.6;">This is the default template for <strong>${activeTemplate}</strong>. Customize it in the Admin → Templates panel.</p>
+  </div>
+  <div style="max-width:600px;margin:0 auto;text-align:center;padding:24px;color:#6b7280;font-size:13px;">
+    <a href="{{siteUrl}}" style="color:#4f46e5;text-decoration:none;">MSLab Scheduler</a><br>
+    This is an automated email. Please do not reply.
+  </div>
+</body>
+</html>`
+        });
       }
 
       setHasChanges(false);
@@ -357,15 +381,32 @@ const EmailTemplatesManagement: React.FC = () => {
     // Use current form data (not saved template) for testing
     let testSubject = formData.subject;
 
-    const sampleData = {
+    const logoUrl = settings?.logo_url || settings?.favicon_url || `${window.location.origin}/lovable-uploads/40965317-613a-41b7-bc11-d9e8b6cba9ae.png`;
+    const siteUrl = window.location.origin;
+    const sampleData: Record<string, string> = {
       "{{userName}}": "John Doe",
       "{{instrumentName}}": "Sample Instrument XR-1000",
       "{{startDate}}": new Date().toLocaleDateString(),
       "{{endDate}}": new Date(Date.now() + 86400000).toLocaleDateString(),
       "{{status}}": "confirmed",
+      "{{bookingDate}}": new Date().toLocaleDateString(),
+      "{{commentBy}}": "Jane Smith",
       "{{commentAuthor}}": "Jane Smith",
       "{{commentContent}}": "This is a sample comment for testing purposes.",
-      "{{commentTime}}": new Date().toLocaleDateString()
+      "{{commentTime}}": new Date().toLocaleDateString(),
+      "{{delayMinutes}}": "45",
+      "{{reason}}": "Instrument maintenance ran long",
+      "{{oldStartDate}}": new Date().toLocaleString(),
+      "{{newStartDate}}": new Date(Date.now() + 45 * 60000).toLocaleString(),
+      "{{newEndDate}}": new Date(Date.now() + 165 * 60000).toLocaleString(),
+      "{{bookingId}}": "00000000-0000-0000-0000-000000000000",
+      "{{requesterName}}": "Alice Anderson",
+      "{{recipientName}}": "Bob Brown",
+      "{{notifications}}": `<li style="margin-bottom:8px;color:#4b5563;"><strong style="color:#111827;">Booking confirmed</strong> — Your booking is approved.</li><li style="margin-bottom:8px;color:#4b5563;"><strong style="color:#111827;">Comment added</strong> — A new comment was added.</li>`,
+      "{{resetUrl}}": `${siteUrl}/reset-password?token=sample-token`,
+      "{{sentAt}}": new Date().toLocaleString(),
+      "{{logoUrl}}": logoUrl,
+      "{{siteUrl}}": siteUrl
     };
 
     Object.entries(sampleData).forEach(([key, value]) => {
@@ -408,15 +449,17 @@ const EmailTemplatesManagement: React.FC = () => {
   };
 
   const getPreviewContent = () => {
-    let previewContent = formData.htmlContent;
-    const logoUrl = settings?.logo_url || `${window.location.origin}/lovable-uploads/40965317-613a-41b7-bc11-d9e8b6cba9ae.png`;
+    let previewContent = formData.htmlContent || "";
+    const logoUrl = settings?.logo_url || settings?.favicon_url || `${window.location.origin}/lovable-uploads/40965317-613a-41b7-bc11-d9e8b6cba9ae.png`;
     const siteUrl = window.location.origin;
-    const sampleData = {
+    const sampleData: Record<string, string> = {
       "{{userName}}": "John Doe",
       "{{instrumentName}}": "Sample Instrument XR-1000",
       "{{startDate}}": new Date().toLocaleDateString(),
       "{{endDate}}": new Date(Date.now() + 86400000).toLocaleDateString(),
       "{{status}}": "confirmed",
+      "{{bookingDate}}": new Date().toLocaleDateString(),
+      "{{commentBy}}": "Jane Smith",
       "{{commentAuthor}}": "Jane Smith",
       "{{commentContent}}": "This is a sample comment for testing purposes.",
       "{{commentTime}}": new Date().toLocaleDateString(),
@@ -425,6 +468,12 @@ const EmailTemplatesManagement: React.FC = () => {
       "{{oldStartDate}}": new Date().toLocaleString(),
       "{{newStartDate}}": new Date(Date.now() + 45 * 60000).toLocaleString(),
       "{{newEndDate}}": new Date(Date.now() + 165 * 60000).toLocaleString(),
+      "{{bookingId}}": "00000000-0000-0000-0000-000000000000",
+      "{{requesterName}}": "Alice Anderson",
+      "{{recipientName}}": "Bob Brown",
+      "{{notifications}}": `<li style="margin-bottom:8px;color:#4b5563;"><strong style="color:#111827;">Booking confirmed</strong> — Your booking is approved.</li><li style="margin-bottom:8px;color:#4b5563;"><strong style="color:#111827;">Comment added</strong> — A new comment was added.</li>`,
+      "{{resetUrl}}": `${siteUrl}/reset-password?token=sample-token`,
+      "{{sentAt}}": new Date().toLocaleString(),
       "{{logoUrl}}": logoUrl,
       "{{siteUrl}}": siteUrl
     };
@@ -433,27 +482,44 @@ const EmailTemplatesManagement: React.FC = () => {
       previewContent = previewContent.replace(new RegExp(key.replace(/[{}]/g, '\\$&'), 'g'), value);
     });
 
-    const logoHeader = logoUrl ? `<div style="text-align:center;padding:10px 0"><img src="${logoUrl}" style="max-height:60px" alt="Lab Logo" /></div>` : '';
+    const logoHeader = logoUrl
+      ? `<div style="text-align:center;padding:24px 0;border-bottom:1px solid #e5e7eb;"><a href="${siteUrl}" target="_blank" style="display:inline-block;"><img src="${logoUrl}" alt="MSLab Scheduler" style="max-height:64px;max-width:200px;border:0;display:block;margin:0 auto;"></a></div>`
+      : "";
 
-    // Match the server-side behavior: prepend a centered logo header if not already present
-    if (previewContent.includes('<body')) {
-      if (logoUrl && !previewContent.includes(logoUrl)) {
-        previewContent = previewContent.replace(/<body([^>]*)>/i, `<body$1>${logoHeader}`);
+    const baseTag = `<base href="${siteUrl}">`;
+
+    if (previewContent.trim() && !/^\s*<!(DOCTYPE|doctype)/i.test(previewContent) && !/<html/i.test(previewContent)) {
+      previewContent = `<!DOCTYPE html><html><head>${baseTag}</head><body>${logoHeader}${previewContent}</body></html>`;
+    }
+
+    if (previewContent.includes("<body") && logoUrl && !previewContent.includes(logoUrl)) {
+      previewContent = previewContent.replace(/<body([^>]*)>/i, `<body$1>${logoHeader}`);
+    }
+
+    if (!previewContent.includes("<base")) {
+      previewContent = previewContent.replace(/(<head[^>]*>)/i, `$1${baseTag}`);
+      if (!previewContent.includes("<head")) {
+        previewContent = previewContent.replace(/<html([^>]*)>/i, `<html$1><head>${baseTag}</head>`);
       }
-    } else if (previewContent.trim()) {
-      previewContent = `<!DOCTYPE html><html><body>${logoHeader}${previewContent}</body></html>`;
     }
 
     return previewContent;
   };
 
-  const availableVariables = {
-    welcome: ["{{userName}}"],
-    booking_confirmation: ["{{userName}}", "{{instrumentName}}", "{{startDate}}", "{{endDate}}", "{{status}}"],
-    booking_update: ["{{userName}}", "{{instrumentName}}", "{{startDate}}", "{{endDate}}", "{{status}}"],
-    comment_added: ["{{userName}}", "{{instrumentName}}", "{{startDate}}", "{{endDate}}", "{{commentAuthor}}", "{{commentContent}}", "{{commentTime}}"],
-    booking_delayed: ["{{userName}}", "{{instrumentName}}", "{{delayMinutes}}", "{{reason}}", "{{oldStartDate}}", "{{newStartDate}}", "{{newEndDate}}"],
-    booking_delay_reversed: ["{{userName}}", "{{instrumentName}}", "{{delayMinutes}}", "{{oldStartDate}}", "{{newStartDate}}", "{{newEndDate}}"]
+  const availableVariables: Record<string, string[]> = {
+    welcome: ["{{userName}}", "{{logoUrl}}", "{{siteUrl}}"],
+    booking_confirmation: ["{{userName}}", "{{instrumentName}}", "{{startDate}}", "{{endDate}}", "{{status}}", "{{logoUrl}}", "{{siteUrl}}"],
+    booking_update: ["{{userName}}", "{{instrumentName}}", "{{startDate}}", "{{endDate}}", "{{status}}", "{{logoUrl}}", "{{siteUrl}}"],
+    booking_approved: ["{{userName}}", "{{instrumentName}}", "{{startDate}}", "{{endDate}}", "{{status}}", "{{logoUrl}}", "{{siteUrl}}"],
+    booking_denied: ["{{userName}}", "{{instrumentName}}", "{{startDate}}", "{{endDate}}", "{{logoUrl}}", "{{siteUrl}}"],
+    comment_notification: ["{{userName}}", "{{instrumentName}}", "{{startDate}}", "{{endDate}}", "{{bookingDate}}", "{{commentBy}}", "{{commentContent}}", "{{commentTime}}", "{{logoUrl}}", "{{siteUrl}}"],
+    booking_delayed: ["{{userName}}", "{{instrumentName}}", "{{delayMinutes}}", "{{reason}}", "{{oldStartDate}}", "{{newStartDate}}", "{{newEndDate}}", "{{logoUrl}}", "{{siteUrl}}"],
+    booking_delay_reversed: ["{{userName}}", "{{instrumentName}}", "{{delayMinutes}}", "{{oldStartDate}}", "{{newStartDate}}", "{{newEndDate}}", "{{logoUrl}}", "{{siteUrl}}"],
+    waitlist_filled: ["{{userName}}", "{{instrumentName}}", "{{bookingDate}}", "{{bookingId}}", "{{logoUrl}}", "{{siteUrl}}"],
+    swap_status: ["{{requesterName}}", "{{recipientName}}", "{{status}}", "{{logoUrl}}", "{{siteUrl}}"],
+    notification_digest: ["{{userName}}", "{{notifications}}", "{{logoUrl}}", "{{siteUrl}}"],
+    password_reset: ["{{resetUrl}}", "{{userName}}", "{{logoUrl}}", "{{siteUrl}}"],
+    smtp_test: ["{{sentAt}}", "{{logoUrl}}", "{{siteUrl}}"]
   };
 
   return (
@@ -468,12 +534,19 @@ const EmailTemplatesManagement: React.FC = () => {
 
         <Tabs value={activeTemplate} onValueChange={setActiveTemplate}>
           <TabsList className="flex flex-wrap h-auto">
-            <TabsTrigger value="welcome">Welcome Email</TabsTrigger>
+            <TabsTrigger value="welcome">Welcome</TabsTrigger>
             <TabsTrigger value="booking_confirmation">Booking Confirmation</TabsTrigger>
             <TabsTrigger value="booking_update">Booking Update</TabsTrigger>
-            <TabsTrigger value="comment_added">Comment Added</TabsTrigger>
+            <TabsTrigger value="booking_approved">Booking Approved</TabsTrigger>
+            <TabsTrigger value="booking_denied">Booking Denied</TabsTrigger>
+            <TabsTrigger value="comment_notification">Comment Added</TabsTrigger>
             <TabsTrigger value="booking_delayed">Booking Delayed</TabsTrigger>
             <TabsTrigger value="booking_delay_reversed">Delay Reversed</TabsTrigger>
+            <TabsTrigger value="waitlist_filled">Waitlist Filled</TabsTrigger>
+            <TabsTrigger value="swap_status">Swap Status</TabsTrigger>
+            <TabsTrigger value="notification_digest">Digest</TabsTrigger>
+            <TabsTrigger value="password_reset">Password Reset</TabsTrigger>
+            <TabsTrigger value="smtp_test">SMTP Test</TabsTrigger>
           </TabsList>
 
 
@@ -514,11 +587,13 @@ const EmailTemplatesManagement: React.FC = () => {
               </div>
 
               {showPreview && (
-                <div className="border rounded-lg p-4">
-                  <h4 className="font-medium mb-2">Live Preview (with sample data):</h4>
-                  <div 
-                    className="border rounded p-4 bg-white"
-                    dangerouslySetInnerHTML={{ __html: getPreviewContent() }}
+                <div className="border rounded-lg p-4 space-y-2">
+                  <h4 className="font-medium">Live Preview (with sample data):</h4>
+                  <iframe
+                    title="Email preview"
+                    srcDoc={getPreviewContent()}
+                    sandbox="allow-same-origin"
+                    style={{ width: "100%", height: "500px", border: "1px solid #e5e7eb", borderRadius: "6px", backgroundColor: "#f3f4f6" }}
                   />
                 </div>
               )}

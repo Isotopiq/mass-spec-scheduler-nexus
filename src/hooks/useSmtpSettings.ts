@@ -120,15 +120,10 @@ export const useSmtpSettings = () => {
       const response = await supabase.functions.invoke('send-email', {
         body: {
           to: testEmail,
-          subject: 'Test Email from Lab Management System',
-          htmlContent: `
-            <h1>Test Email</h1>
-            <p>This is a test email to verify your SMTP configuration.</p>
-            <p>If you received this email, your SMTP settings are working correctly!</p>
-            <p>Sent at: ${new Date().toLocaleString()}</p>
-          `,
-          templateType: null,
-          variables: {}
+          subject: 'SMTP Test - MSLab Scheduler',
+          htmlContent: `<h1 style="color:#111827;font-size:24px;margin:0 0 16px;">SMTP Test Email</h1><p style="color:#4b5563;font-size:16px;line-height:1.6;margin:0 0 16px;">This is a test email from <strong>MSLab Scheduler</strong>.</p><p style="color:#4b5563;font-size:16px;line-height:1.6;margin:0;">If you received this email, your SMTP settings are configured correctly.</p><div style="background:#eff6ff;border-left:4px solid #3b82f6;padding:16px;margin:16px 0;border-radius:6px;"><p style="margin:0;color:#4b5563;"><strong>Sent at:</strong> {{sentAt}}</p></div>`,
+          templateType: 'smtp_test',
+          variables: { sentAt: new Date().toLocaleString() }
         }
       });
 

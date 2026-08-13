@@ -10,7 +10,7 @@ import dotenv from 'dotenv';
 import pgFormat from 'pg-format';
 import * as fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import crypto from 'crypto';
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadBucketCommand } from '@aws-sdk/client-s3';
 
@@ -615,16 +615,39 @@ async function runMigrations() {
   const files = fs.readdirSync(migrationsDir).sort();
   const client = await pool.connect();
   try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        filename TEXT PRIMARY KEY,
+        applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `);
     for (const file of files) {
-      if (!file.endsWith('.sql')) continue;
-      const content = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
+      const ext = path.extname(file);
+      if (!['.sql', '.js'].includes(ext)) continue;
+      const { rows } = await client.query('SELECT 1 FROM schema_migrations WHERE filename = $1', [file]);
+      if (rows.length) {
+        console.log('Skipping already applied migration', file);
+        continue;
+      }
+      const filePath = path.join(migrationsDir, file);
       await client.query('BEGIN');
-      await client.query(content);
+      if (ext === '.sql') {
+        const content = fs.readFileSync(filePath, 'utf8');
+        await client.query(content);
+      } else if (ext === '.js') {
+        const mod = await import(pathToFileURL(filePath).href);
+        if (typeof mod.default === 'function') {
+          await mod.default({ pool: client });
+        } else {
+          throw new Error(`Migration ${file} must export a default async function`);
+        }
+      }
+      await client.query('INSERT INTO schema_migrations (filename) VALUES ($1)', [file]);
       await client.query('COMMIT');
       console.log('Applied migration', file);
     }
   } catch (e) {
-    await client.query('ROLLBACK');
+    await client.query('ROLLBACK').catch(() => {});
     throw e;
   } finally {
     client.release();
@@ -649,20 +672,86 @@ async function seedDefaults() {
 
 function smtpTransport(settings) {
   const port = Number(settings.port) || 587;
-  return nodemailer.createTransport({
+  const useTls = settings.use_tls !== false;
+  const secure = useTls && port === 465;
+  const transport = {
     host: settings.host,
     port,
-    secure: port === 465,
+    secure,
     auth: { user: settings.username, pass: settings.password }
-  });
+  };
+  if (useTls) {
+    transport.tls = { rejectUnauthorized: false };
+  } else {
+    transport.ignoreTLS = true;
+  }
+  return nodemailer.createTransport(transport);
 }
 
 async function getLogoAndSiteUrl() {
   const settings = await getSettings();
-  return {
-    logoUrl: settings?.logo_url || settings?.favicon_url || '',
-    siteUrl: process.env.SITE_URL || `http://localhost:${PORT || 3000}`
-  };
+  const siteUrl = process.env.SITE_URL || `http://localhost:${PORT || 3000}`;
+  let logoUrl = settings?.logo_url || settings?.favicon_url || '';
+  if (logoUrl && logoUrl.startsWith('/') && !logoUrl.startsWith('//')) {
+    logoUrl = `${siteUrl.replace(/\/$/, '')}${logoUrl}`;
+  }
+  return { logoUrl, siteUrl };
+}
+
+function substituteVars(text, vars) {
+  if (!text) return '';
+  let result = String(text);
+  for (const [k, v] of Object.entries(vars)) {
+    result = result.split(`{{${k}}}`).join(String(v != null ? v : ''));
+  }
+  return result;
+}
+
+function buildLogoHeader(logoUrl, siteUrl) {
+  if (!logoUrl) return '';
+  return `
+    <tr>
+      <td style="background:#ffffff;padding:24px 0;text-align:center;border-bottom:1px solid #e5e7eb;">
+        <a href="${siteUrl || '#'}" target="_blank" style="display:inline-block;">
+          <img src="${logoUrl}" alt="MSLab Scheduler" style="max-height:64px;max-width:200px;border:0;display:block;margin:0 auto;">
+        </a>
+      </td>
+    </tr>`;
+}
+
+function buildEmailHtml({ logoUrl, siteUrl, title, content, footerText }) {
+  const logoSection = logoUrl ? buildLogoHeader(logoUrl, siteUrl) : '';
+  const footer = footerText || `<a href="${siteUrl || '#'}" style="color:#4f46e5;text-decoration:none;font-weight:500;">MSLab Scheduler</a>`;
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title ? title.replace(/</g, '&lt;') : 'MSLab Scheduler'}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+    <tr>
+      <td align="center" style="padding:20px 0;">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="max-width:600px;width:100%;background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
+          ${logoSection}
+          <tr>
+            <td style="padding:32px 32px 24px;color:#1f2937;font-size:16px;line-height:1.6;">
+              ${content}
+            </td>
+          </tr>
+          <tr>
+            <td style="background:#f9fafb;padding:24px 32px;text-align:center;color:#6b7280;font-size:13px;line-height:1.5;border-top:1px solid #e5e7eb;">
+              ${footer}<br>
+              <span style="color:#9ca3af;">This is an automated email. Please do not reply.</span>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
 }
 
 async function createNotification({ userId, type = 'info', title, message, link }) {
@@ -768,16 +857,20 @@ async function sendEmailDigest(userId, frequency) {
     );
     if (!rows.length) return;
 
-    const { logoUrl, siteUrl } = await getLogoAndSiteUrl();
-    const listHtml = rows.map(n => `<li><strong>${n.title}</strong>: ${n.message}</li>`).join('');
-    const html = `<!DOCTYPE html><html><body><div style="text-align:center"><img src="${logoUrl}" style="max-height:60px" alt="Lab Logo" /></div><h2>Hello ${name || ''},</h2><p>Here are your recent notifications:</p><ul>${listHtml}</ul><p><a href="${siteUrl}">View dashboard</a></p></body></html>`;
-
+    const listHtml = rows.map(n => `<li style="margin-bottom:8px;color:#4b5563;"><strong style="color:#111827;">${n.title}</strong> — ${n.message}</li>`).join('');
     await sendEmailWithTemplate({
       to: email,
       subject: frequency === 'weekly' ? 'Weekly Lab Digest' : 'Daily Lab Digest',
-      htmlContent: html,
+      htmlContent: `
+        <h1 style="color:#111827;font-size:24px;margin:0 0 16px;">Hello {{userName}},</h1>
+        <p style="color:#4b5563;font-size:16px;line-height:1.6;margin:0 0 16px;">Here are your recent notifications from MSLab Scheduler:</p>
+        <ul style="margin:0 0 24px;padding-left:20px;">{{notifications}}</ul>
+        <p style="text-align:center;margin:24px 0 0;">
+          <a href="{{siteUrl}}" style="display:inline-block;background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#ffffff;padding:14px 28px;border-radius:6px;text-decoration:none;font-weight:600;">View Dashboard</a>
+        </p>
+      `,
       templateType: 'notification_digest',
-      variables: { userName: name || '', siteUrl, logoUrl, notifications: listHtml }
+      variables: { userName: name || 'there', notifications: listHtml }
     });
 
     await pool.query('UPDATE notifications SET email_sent = true WHERE id = ANY($1::uuid[])', [rows.map(n => n.id)]);
@@ -788,46 +881,57 @@ async function sendEmailDigest(userId, frequency) {
 async function sendEmailWithTemplate({ to, subject, htmlContent, templateType, variables }) {
   const settingsRows = await pool.query('SELECT * FROM smtp_settings LIMIT 1');
   const settings = settingsRows.rows[0];
-  if (!settings) throw new Error('SMTP not configured');
+  if (!settings) throw new Error('SMTP not configured. Go to Admin → SMTP and save your mail server settings before sending test emails.');
   global.smtpSettingsCache = settings;
 
-  let body = htmlContent;
   const { logoUrl, siteUrl } = await getLogoAndSiteUrl();
   const vars = { ...(variables || {}), logoUrl, siteUrl };
 
+  let body = htmlContent || '';
   if (templateType) {
     const templateRows = await pool.query('SELECT * FROM email_templates WHERE template_type = $1', [templateType]);
     if (templateRows.rows.length) {
-      let tpl = templateRows.rows[0].html_content;
+      const tpl = templateRows.rows[0].html_content;
       const subj = templateRows.rows[0].subject;
       if (subj) subject = subj;
-      for (const [k, v] of Object.entries(vars)) {
-        tpl = tpl.split(`{{${k}}}`).join(String(v));
-      }
       body = tpl;
     }
   }
 
-  const logoHeader = logoUrl ? `<div style="text-align:center;padding:10px 0"><img src="${logoUrl}" style="max-height:60px" alt="Lab Logo" /></div>` : '';
+  subject = substituteVars(subject, vars);
+  body = substituteVars(body, vars);
 
-  // Always ensure logo is included near the top if not already present
-  if (body.includes('<body')) {
-    if (logoUrl && !body.includes(logoUrl)) {
-      body = body.replace(/<body([^>]*)>/i, `<body$1>${logoHeader}`);
-    }
-  } else if (body.trim()) {
-    // Wrap bare HTML content in a standard email shell with the logo header
-    body = `<!DOCTYPE html><html><body>${logoHeader}${body}</body></html>`;
+  if (!body.trim()) {
+    body = `<p style="color:#4b5563;font-size:16px;">${subject ? subject.replace(/</g, '&lt;') : 'You have a new notification.'}</p>`;
   }
 
-  const transporter = smtpTransport(settings);
+  const isFullHtml = /^\s*<!(DOCTYPE|doctype)/i.test(body) || /<html/i.test(body);
+  if (isFullHtml) {
+    // Full templates already include the logo via {{logoUrl}}. If they do not, inject a logo header.
+    if (logoUrl && !body.includes(logoUrl)) {
+      const injected = `<div style="text-align:center;padding:24px 0;border-bottom:1px solid #e5e7eb;"><a href="${siteUrl || '#'}" target="_blank" style="display:inline-block;"><img src="${logoUrl}" alt="MSLab Scheduler" style="max-height:64px;max-width:200px;border:0;"></a></div>`;
+      body = body.replace(/<body([^>]*)>/i, `<body$1>${injected}`);
+    }
+  } else {
+    body = buildEmailHtml({ logoUrl, siteUrl, title: subject, content: body });
+  }
 
-  await transporter.sendMail({
-    from: `"${settings.from_name || 'Lab Management'}" <${settings.from_email}>`,
-    to,
-    subject,
-    html: body
-  });
+  console.log('sendEmailWithTemplate:', { to, subject, templateType, bodyLength: body.length, logoUrl, siteUrl });
+
+  const transporter = smtpTransport(settings);
+  try {
+    const info = await transporter.sendMail({
+      from: `"${settings.from_name || 'MSLab Scheduler'}" <${settings.from_email}>`,
+      to,
+      subject,
+      html: body
+    });
+    console.log('Email sent:', info.messageId);
+    return info;
+  } catch (err) {
+    console.error('sendEmailWithTemplate send error:', err);
+    throw new Error(`SMTP send failed: ${err.message}`);
+  }
 }
 
 function getS3Client() {
@@ -949,7 +1053,13 @@ app.post('/api/auth/reset-password', async (req, res) => {
         const origin = req.get('origin') || req.headers.referer || `http://localhost:${PORT}`;
         resetUrl = `${origin}/reset-password?token=${token}`;
       }
-      await sendEmailWithTemplate({ to: email, subject: 'Password reset', htmlContent: `<p>Reset your password: <a href="${resetUrl}">${resetUrl}</a></p>`, templateType: null, variables: {} });
+      await sendEmailWithTemplate({
+        to: email,
+        subject: 'Password reset',
+        htmlContent: `<p style="color:#4b5563;font-size:16px;line-height:1.6;">Click the button below to reset your password. The link expires in 1 hour.</p><p style="text-align:center;margin:24px 0;"><a href="{{resetUrl}}" style="display:inline-block;background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#ffffff;padding:14px 28px;border-radius:6px;text-decoration:none;font-weight:600;">Reset Password</a></p><p style="color:#4b5563;font-size:14px;line-height:1.5;">If the button does not work, paste this link into your browser:<br><a href="{{resetUrl}}" style="color:#4f46e5;word-break:break-all;">{{resetUrl}}</a></p>`,
+        templateType: 'password_reset',
+        variables: { resetUrl }
+      });
     }
     res.json({ data: {}, error: null });
   } catch (err) {
@@ -1828,7 +1938,7 @@ app.post('/api/schedule-delays', requireAuth, requireAdmin, async (req, res) => 
         await sendEmailWithTemplate({
           to: profileRows[0].email,
           subject: `Booking Delayed: ${instrumentName}`,
-          htmlContent: '',
+          htmlContent: `<p style="color:#4b5563;font-size:16px;line-height:1.6;">Dear {{userName}},</p><p style="color:#4b5563;font-size:16px;line-height:1.6;">Your booking for <strong>{{instrumentName}}</strong> has been delayed by <strong>{{delayMinutes}} minutes</strong>.</p><div style="background:#fffbeb;border-left:4px solid #f59e0b;padding:16px;margin:16px 0;"><p style="margin:0 0 8px;color:#4b5563;"><strong>Reason:</strong> {{reason}}</p><p style="margin:0;color:#4b5563;"><strong>Previous start:</strong> {{oldStartDate}}</p><p style="margin:0;color:#4b5563;"><strong>New start:</strong> {{newStartDate}}</p><p style="margin:0;color:#4b5563;"><strong>New end:</strong> {{newEndDate}}</p></div>`,
           templateType: 'booking_delayed',
           variables: {
             userName: profileRows[0].name || '',
@@ -1895,7 +2005,7 @@ app.post('/api/schedule-delays/:id/reverse', requireAuth, requireAdmin, async (r
         await sendEmailWithTemplate({
           to: profileRows[0].email,
           subject: `Booking Delay Reversed: ${instrumentName}`,
-          htmlContent: '',
+          htmlContent: `<p style="color:#4b5563;font-size:16px;line-height:1.6;">Dear {{userName}},</p><p style="color:#4b5563;font-size:16px;line-height:1.6;">The <strong>{{delayMinutes}} minute</strong> delay applied to your booking for <strong>{{instrumentName}}</strong> has been reversed.</p><div style="background:#ecfdf5;border-left:4px solid #10b981;padding:16px;margin:16px 0;"><p style="margin:0;color:#4b5563;"><strong>Delayed start:</strong> {{oldStartDate}}</p><p style="margin:0;color:#4b5563;"><strong>Restored start:</strong> {{newStartDate}}</p><p style="margin:0;color:#4b5563;"><strong>Restored end:</strong> {{newEndDate}}</p></div>`,
           templateType: 'booking_delay_reversed',
           variables: {
             userName: profileRows[0].name || '',
