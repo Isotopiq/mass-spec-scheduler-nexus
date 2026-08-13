@@ -25,12 +25,12 @@ description: How to run E2E tests against the standalone Postgres/Vite stack on 
 
 ## Browser-automation gotchas
 
-- The app uses a custom `Select` (Radix/shadcn) with a hidden native `<select>`. Native UI clicks often fail to update the visible value; prefer clicking the visible trigger and selecting the option, or use API workarounds for data creation.
-- Login form inputs sometimes do not receive keystrokes until focused via JavaScript: `document.querySelector('input[name=email]').focus()`.
+- The app uses a custom `Select` (Radix/shadcn) with a hidden native `<select>`. The visible trigger can be opened and an option selected with JavaScript `.click()`, but the dialog's controlled `Purpose`/`datetime-local` inputs do not enable the Submit/Schedule button when values are set programmatically. For reliable booking/maintenance creation, use API workarounds or trigger real keyboard input.
+- Login form inputs sometimes do not receive keystrokes until focused via JavaScript: `document.querySelector('input[name=email]').focus()`. If the login form remains flaky, use `/api/auth/signin` + `localStorage` token injection.
 - Avatar/logout dropdown also did not open on click; use `localStorage.clear()` + reload to switch users.
-- Admin tab coordinates: the tabs sit below the header; use `getBoundingClientRect()` + a scaling factor of about `0.64` plus a browser-chrome Y offset when using the desktop UI tools.
-- The notifications bell dropdown opens on click and can also be verified at `/notifications`.
-- Analytics `Status` tab should now switch after the controlled-tabs fix; if it is unresponsive, verify summary cards on the `Usage Analysis` tab.
+- Coordinate scaling: `getBoundingClientRect()` returns CSS pixels for the actual viewport (`innerWidth` 1600, `innerHeight` 1069 on a maximized window). The desktop tool coordinate space is 1024x768, so multiply CSS X by ~0.64 and CSS Y by ~0.72, and add a browser-chrome Y offset. Alternatively, use JavaScript `.click()` on the element itself.
+- The notifications bell dropdown did not open reliably under automation in the latest run; verify notifications at `/notifications` as a fallback.
+- Analytics `Status` tab now switches and renders after the controlled-tabs fix.
 
 ## Standalone auth token injection workaround
 
