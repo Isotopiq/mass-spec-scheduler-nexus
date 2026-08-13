@@ -20,6 +20,7 @@ import {
 } from "../ui/alert-dialog";
 import SequenceFileLink from "../calendar/SequenceFileLink";
 import { SwapRequestDialog } from "./SwapRequestDialog";
+import { useAuth } from "../../contexts/AuthContext";
 
 interface BookingCardProps {
   booking: any;
@@ -78,9 +79,12 @@ export const BookingCard: React.FC<BookingCardProps> = ({
   showSwapButton = false,
   onSwapRequested,
 }) => {
+  const { session } = useAuth();
+  const token = session?.access_token;
+
   const handleCheckIn = async () => {
     try {
-      const token = JSON.parse(localStorage.getItem('sb-auth-token') || '{}')?.access_token;
+      if (!token) throw new Error('Not authenticated');
       const res = await fetch(`/api/bookings/${booking.id}/check-in`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error?.message || 'Check-in failed');
@@ -91,7 +95,7 @@ export const BookingCard: React.FC<BookingCardProps> = ({
 
   const handleCheckOut = async () => {
     try {
-      const token = JSON.parse(localStorage.getItem('sb-auth-token') || '{}')?.access_token;
+      if (!token) throw new Error('Not authenticated');
       const res = await fetch(`/api/bookings/${booking.id}/check-out`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error?.message || 'Check-out failed');
@@ -122,10 +126,10 @@ export const BookingCard: React.FC<BookingCardProps> = ({
               </Button>
             </SwapRequestDialog>
           )}
-          {user?.role === "admin" && booking.status === "confirmed" && !booking.checked_in_at && (
+          {user?.role === "admin" && booking.status === "confirmed" && !booking.checkedInAt && (
             <Button variant="outline" size="sm" onClick={handleCheckIn} title="Check in"><LogIn className="h-4 w-4" /></Button>
           )}
-          {user?.role === "admin" && booking.checked_in_at && !booking.checked_out_at && (
+          {user?.role === "admin" && booking.checkedInAt && !booking.checkedOutAt && (
             <Button variant="outline" size="sm" onClick={handleCheckOut} title="Check out"><LogOut className="h-4 w-4" /></Button>
           )}
           {user?.role === "admin" && (

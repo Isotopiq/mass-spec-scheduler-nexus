@@ -151,6 +151,12 @@ export const OptimizedBookingProvider: React.FC<{ children: React.ReactNode }> =
         sequenceFileName: (booking as any).sequence_file_name ?? null,
         sequenceFileSize: (booking as any).sequence_file_size ?? null,
         sequenceFileUploadedAt: (booking as any).sequence_file_uploaded_at ?? null,
+        checkedInAt: (booking as any).checked_in_at ?? null,
+        checkedOutAt: (booking as any).checked_out_at ?? null,
+        actualStartTime: (booking as any).actual_start_time ?? null,
+        actualEndTime: (booking as any).actual_end_time ?? null,
+        parentBookingId: (booking as any).parent_booking_id ?? null,
+        recurrenceRule: (booking as any).recurrence_rule ?? null,
         comments: commentsByBooking[booking.id] || []
       }));
 

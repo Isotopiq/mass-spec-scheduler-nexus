@@ -333,6 +333,42 @@ async function enforceBookingRules(action, values, table, filters, user) {
   }
 }
 
+async function validateMaintenanceEvent(action, values, filters) {
+  let instrumentId = values?.instrument_id;
+  let startTime = values?.start_time;
+  let endTime = values?.end_time;
+  let status = values?.status;
+  let maintenanceId = null;
+
+  if (action === 'update') {
+    const idFilter = (filters || []).find(f => f.op === 'eq' && f.column === 'id');
+    if (idFilter) {
+      maintenanceId = idFilter.value;
+      const existing = await pool.query('SELECT * FROM instrument_maintenance WHERE id = $1', [maintenanceId]);
+      if (existing.rows.length) {
+        const ex = existing.rows[0];
+        instrumentId = instrumentId || ex.instrument_id;
+        startTime = startTime || ex.start_time;
+        endTime = endTime || ex.end_time;
+        status = status || ex.status;
+      }
+    }
+  }
+
+  if (!instrumentId || !startTime || !endTime) return;
+  if (['cancelled', 'completed'].includes(String(status || '').toLowerCase())) return;
+
+  const overlapQuery = `
+    SELECT 1 FROM bookings
+    WHERE instrument_id = $1
+      AND lower(status) NOT IN ('cancelled', 'denied')
+      AND start_time < $2 AND end_time > $3
+    LIMIT 1
+  `;
+  const { rows } = await pool.query(overlapQuery, [instrumentId, endTime, startTime]);
+  if (rows.length) throw new Error('Maintenance conflict: this instrument is already booked during the selected time window.');
+}
+
 async function handleRestQuery(req, res) {
   const user = req.user;
   const { table, action, columns, values, filters, order, limit, single, count } = req.body || {};
@@ -348,6 +384,10 @@ async function handleRestQuery(req, res) {
     let safeValues = values ? sanitizeValues(values, table) : null;
     if (table === 'bookings' && safeValues && (action === 'insert' || action === 'update')) {
       await enforceBookingRules(action, safeValues, table, filters, user);
+    }
+
+    if (table === 'instrument_maintenance' && safeValues && (action === 'insert' || action === 'update')) {
+      await validateMaintenanceEvent(action, safeValues, filters);
     }
 
     if (table === 'comments' && action === 'insert' && safeValues && user.role !== 'admin') {
@@ -1026,7 +1066,16 @@ async function findBookingConflict(bookingId, startTime, endTime, instrumentId, 
      LIMIT 1`,
     [instrumentId, exclude, endTime, startTime]
   );
-  return rows.length > 0;
+  if (rows.length > 0) return true;
+
+  const { rows: maintRows } = await pool.query(
+    `SELECT 1 FROM instrument_maintenance
+     WHERE instrument_id = $1 AND lower(status) NOT IN ('cancelled', 'completed')
+       AND start_time < $2 AND end_time > $3
+     LIMIT 1`,
+    [instrumentId, endTime, startTime]
+  );
+  return maintRows.length > 0;
 }
 
 async function canExecuteSwap(swap) {
@@ -1692,7 +1741,7 @@ app.post('/api/bookings/:id/check-out', requireAuth, requireAdmin, async (req, r
     const bookingId = req.params.id;
     const now = new Date().toISOString();
     const { rows } = await pool.query(
-      'UPDATE bookings SET checked_out_at = $1, actual_end_time = $1 WHERE id = $2 RETURNING *',
+      "UPDATE bookings SET checked_out_at = $1, actual_end_time = $1, status = 'completed' WHERE id = $2 RETURNING *",
       [now, bookingId]
     );
     if (!rows.length) throw new Error('Booking not found');

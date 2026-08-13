@@ -60,6 +60,12 @@ export interface Booking {
   sequenceFileName?: string | null;
   sequenceFileSize?: number | null;
   sequenceFileUploadedAt?: string | null;
+  checkedInAt?: string | null;
+  checkedOutAt?: string | null;
+  actualStartTime?: string | null;
+  actualEndTime?: string | null;
+  parentBookingId?: string | null;
+  recurrenceRule?: string | null;
 }
 
 export interface Instrument {

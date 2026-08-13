@@ -5,11 +5,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Upload, Download } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
+import { useOptimizedBooking } from '../../contexts/OptimizedBookingContext';
 
 export const BulkImportExport: React.FC = () => {
   const [importType, setImportType] = useState('users');
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
+  const { session, refreshUsers } = useAuth();
+  const { refreshData } = useOptimizedBooking();
+  const token = session?.access_token;
 
   const handleImport = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -21,12 +26,14 @@ export const BulkImportExport: React.FC = () => {
       const res = await fetch(`/api/admin/import/${importType}`, {
         method: 'POST',
         body: formData,
-        headers: { Authorization: `Bearer ${JSON.parse(localStorage.getItem('sb-auth-token') || '{}')?.access_token || ''}` }
+        headers: { Authorization: `Bearer ${token || ''}` }
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error?.message || 'Import failed');
       toast.success(`Imported ${json.data.inserted} ${importType}`);
       setFile(null);
+      if (importType === 'users') await refreshUsers();
+      if (importType === 'instruments') await refreshData();
     } catch (err: any) { toast.error(err.message); }
     finally { setLoading(false); }
   };
@@ -34,7 +41,7 @@ export const BulkImportExport: React.FC = () => {
   const exportData = async (type: string) => {
     try {
       const res = await fetch(`/api/admin/export/${type}`, {
-        headers: { Authorization: `Bearer ${JSON.parse(localStorage.getItem('sb-auth-token') || '{}')?.access_token || ''}` }
+        headers: { Authorization: `Bearer ${token || ''}` }
       });
       if (!res.ok) throw new Error('Export failed');
       const blob = await res.blob();
