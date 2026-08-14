@@ -3,6 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Button } from "../ui/button";
+import { Switch } from "../ui/switch";
 import { useAppSettings } from "../../hooks/useAppSettings";
 import { supabase } from "../../integrations/supabase/client";
 import { toast } from "sonner";
@@ -10,11 +11,13 @@ import { toast } from "sonner";
 const BookingSettings: React.FC = () => {
   const { settings, isLoading, reload } = useAppSettings();
   const [days, setDays] = useState(365);
+  const [recurringEnabled, setRecurringEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (settings) {
       setDays(settings.max_booking_days_ahead ?? 365);
+      setRecurringEnabled(settings.recurring_bookings_enabled ?? false);
     }
   }, [settings]);
 
@@ -24,14 +27,14 @@ const BookingSettings: React.FC = () => {
     setSaving(true);
     const { error } = await supabase
       .from("app_settings")
-      .update({ max_booking_days_ahead: days, updated_at: new Date().toISOString() })
+      .update({ max_booking_days_ahead: days, recurring_bookings_enabled: recurringEnabled, updated_at: new Date().toISOString() })
       .eq("id", settings.id);
     setSaving(false);
     if (error) {
-      toast.error("Failed to update booking horizon");
+      toast.error("Failed to update booking settings");
       return;
     }
-    toast.success("Booking horizon updated");
+    toast.success("Booking settings updated");
     reload();
     window.dispatchEvent(new CustomEvent('app-settings-updated'));
   };
@@ -49,7 +52,7 @@ const BookingSettings: React.FC = () => {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSave} className="space-y-4 max-w-md">
+        <form onSubmit={handleSave} className="space-y-6 max-w-md">
           <div className="space-y-2">
             <Label htmlFor="maxBookingDays">Maximum days ahead</Label>
             <Input
@@ -64,6 +67,21 @@ const BookingSettings: React.FC = () => {
               Users will only be able to select dates up to {days} day{days === 1 ? "" : "s"} from today.
             </p>
           </div>
+
+          <div className="flex items-center justify-between rounded-lg border p-4">
+            <div className="space-y-0.5">
+              <Label htmlFor="recurringBookings" className="block">Recurring bookings</Label>
+              <p className="text-sm text-muted-foreground">
+                Allow users to create weekly recurring bookings from the booking form.
+              </p>
+            </div>
+            <Switch
+              id="recurringBookings"
+              checked={recurringEnabled}
+              onCheckedChange={setRecurringEnabled}
+            />
+          </div>
+
           <Button type="submit" disabled={saving}>
             {saving ? "Saving..." : "Save"}
           </Button>

@@ -18,6 +18,7 @@ ENV NODE_ENV=production
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/server.js ./server.js
+COPY --from=builder /app/emailTemplatePresets.js ./emailTemplatePresets.js
 COPY --from=builder /app/migrations ./migrations
 COPY --from=builder /app/package*.json ./
 

@@ -12,6 +12,7 @@ import { Calendar } from "../ui/calendar";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { Loader2, CalendarIcon, Clock } from "lucide-react";
+import { Checkbox } from "../ui/checkbox";
 import { cn } from "../../lib/utils";
 import { findBookingConflict, describeConflict } from "../../utils/bookingOverlap";
 import { useAppSettings } from "../../hooks/useAppSettings";
@@ -49,8 +50,11 @@ const BookingForm: React.FC<BookingFormProps> = ({
     details: "",
     sampleNumber: "",
     sampleRunTime: "",
-    repeatWeeks: "1"
+    isRecurring: false,
+    repeatWeeks: "2"
   });
+
+  const recurringEnabled = appSettings?.recurring_bookings_enabled ?? false;
 
   const selectedInstrument = instruments.find(i => i.id === formData.selectedInstrument);
 
@@ -181,9 +185,9 @@ const BookingForm: React.FC<BookingFormProps> = ({
         detailsText += `\n\nSample Number: ${formData.sampleNumber}`;
       }
 
-      const repeatWeeks = parseInt(formData.repeatWeeks || '1', 10);
+      const repeatWeeks = parseInt(formData.repeatWeeks || '2', 10);
 
-      if (repeatWeeks > 1) {
+      if (recurringEnabled && formData.isRecurring && repeatWeeks >= 2) {
         const { data: sess } = await supabase.auth.getSession();
         const token = sess.session?.access_token;
         const resp = await fetch('/api/bookings/recurring', {
@@ -212,7 +216,8 @@ const BookingForm: React.FC<BookingFormProps> = ({
           details: "",
           sampleNumber: "",
           sampleRunTime: "",
-          repeatWeeks: "1"
+          isRecurring: false,
+          repeatWeeks: "2"
         });
         setIsSubmitting(false);
         return;
@@ -285,7 +290,8 @@ const BookingForm: React.FC<BookingFormProps> = ({
         details: "",
         sampleNumber: "",
         sampleRunTime: "",
-        repeatWeeks: "1"
+        isRecurring: false,
+        repeatWeeks: "2"
       });
     } catch (error: any) {
       console.error("Error creating booking:", error);
@@ -330,7 +336,8 @@ const BookingForm: React.FC<BookingFormProps> = ({
         details: "",
         sampleNumber: "",
         sampleRunTime: "",
-        repeatWeeks: "1"
+        isRecurring: false,
+        repeatWeeks: "2"
       });
     } catch (error: any) {
       console.error('Error joining waitlist:', error);
@@ -531,21 +538,46 @@ const BookingForm: React.FC<BookingFormProps> = ({
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="repeatWeeks">Repeat weekly for</Label>
-              <Select
-                value={formData.repeatWeeks}
-                onValueChange={(value) => setFormData(prev => ({ ...prev, repeatWeeks: value }))}
-              >
-                <SelectTrigger><SelectValue placeholder="Weeks" /></SelectTrigger>
-                <SelectContent>
-                  {[1,2,3,4,5,6,7,8,9,10,11,12].map(n => (
-                    <SelectItem key={n} value={String(n)}>{`${n} ${n === 1 ? 'week' : 'weeks'}`}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          <div className="space-y-3 rounded-lg border p-4">
+            <div className="flex items-start space-x-3">
+              <Checkbox
+                id="isRecurring"
+                checked={formData.isRecurring && recurringEnabled}
+                disabled={!recurringEnabled}
+                onCheckedChange={(checked) =>
+                  setFormData(prev => ({
+                    ...prev,
+                    isRecurring: checked === true,
+                    repeatWeeks: checked ? "2" : prev.repeatWeeks
+                  }))
+                }
+              />
+              <div className="space-y-1">
+                <Label htmlFor="isRecurring" className="font-medium">Make this a recurring weekly booking</Label>
+                <p className="text-sm text-muted-foreground">
+                  {recurringEnabled
+                    ? "Book the same time slot on multiple weeks."
+                    : "Recurring bookings are currently disabled by the administrator."}
+                </p>
+              </div>
             </div>
+
+            {recurringEnabled && formData.isRecurring && (
+              <div className="pl-7">
+                <Label htmlFor="repeatWeeks" className="mb-2 block">Repeat weekly for</Label>
+                <Select
+                  value={formData.repeatWeeks}
+                  onValueChange={(value) => setFormData(prev => ({ ...prev, repeatWeeks: value }))}
+                >
+                  <SelectTrigger id="repeatWeeks" className="w-48"><SelectValue placeholder="Weeks" /></SelectTrigger>
+                  <SelectContent>
+                    {[2,3,4,5,6,7,8,9,10,11,12].map(n => (
+                      <SelectItem key={n} value={String(n)}>{`${n} ${n === 1 ? 'week' : 'weeks'}`}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
 
           <div>

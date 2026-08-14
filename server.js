@@ -13,6 +13,7 @@ import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import crypto from 'crypto';
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadBucketCommand } from '@aws-sdk/client-s3';
+import { cardTemplates, modernTemplates } from './emailTemplatePresets.js';
 
 dotenv.config();
 
@@ -691,7 +692,8 @@ function smtpTransport(settings) {
 async function getLogoAndSiteUrl() {
   const settings = await getSettings();
   const siteUrl = process.env.SITE_URL || `http://localhost:${PORT || 3000}`;
-  let logoUrl = settings?.logo_url || settings?.favicon_url || '';
+  const defaultLogo = `${siteUrl.replace(/\/$/, '')}/lovable-uploads/40965317-613a-41b7-bc11-d9e8b6cba9ae.png`;
+  let logoUrl = settings?.logo_url || settings?.favicon_url || defaultLogo;
   if (logoUrl && logoUrl.startsWith('/') && !logoUrl.startsWith('//')) {
     logoUrl = `${siteUrl.replace(/\/$/, '')}${logoUrl}`;
   }
@@ -776,7 +778,7 @@ async function sendEmailToUser({ userId, templateType, variables, fallbackSubjec
       subject: fallbackSubject,
       htmlContent: fallbackHtml,
       templateType,
-      variables: { userName: name || '', siteUrl, logoUrl, ...(variables || {}) }
+      variables: { userName: name || 'there', siteUrl, logoUrl, ...(variables || {}) }
     });
   } catch (e) {
     console.error('sendEmailToUser error:', e);
@@ -797,29 +799,30 @@ async function sendBookingStatusNotifications(booking, previousStatus) {
     const userId = booking.user_id;
     const instRes = await pool.query('SELECT name FROM instruments WHERE id = $1', [booking.instrument_id]);
     const instrumentName = instRes.rows[0]?.name || 'an instrument';
-    const bookingDate = new Date(booking.start_time).toLocaleString();
+    const startDate = new Date(booking.start_time).toLocaleString();
+    const endDate = new Date(booking.end_time).toLocaleString();
 
     if (status === 'confirmed') {
       await notifyUser({
         userId,
         type: 'success',
         title: 'Booking approved',
-        message: `Your booking for ${instrumentName} on ${bookingDate} has been approved.`,
+        message: `Your booking for ${instrumentName} on ${startDate} has been approved.`,
         templateType: 'booking_approved',
-        templateVars: { instrumentName, bookingDate, bookingId: booking.id },
+        templateVars: { instrumentName, startDate, endDate, status: 'confirmed', bookingId: booking.id },
         fallbackSubject: 'Booking Approved',
-        fallbackHtml: `<h2>Your booking has been approved</h2><p>${instrumentName} on ${bookingDate}</p>`
+        fallbackHtml: `<h2>Your booking has been approved</h2><p>${instrumentName} on ${startDate}</p>`
       });
     } else if (status === 'denied') {
       await notifyUser({
         userId,
         type: 'warning',
         title: 'Booking denied',
-        message: `Your booking for ${instrumentName} on ${bookingDate} was denied.`,
+        message: `Your booking for ${instrumentName} on ${startDate} was denied.`,
         templateType: 'booking_denied',
-        templateVars: { instrumentName, bookingDate, bookingId: booking.id },
+        templateVars: { instrumentName, startDate, endDate, status: 'denied', bookingId: booking.id },
         fallbackSubject: 'Booking Denied',
-        fallbackHtml: `<h2>Your booking was denied</h2><p>${instrumentName} on ${bookingDate}</p>`
+        fallbackHtml: `<h2>Your booking was denied</h2><p>${instrumentName} on ${startDate}</p>`
       });
     }
   } catch (e) { console.error('sendBookingStatusNotifications error:', e); }
@@ -830,16 +833,17 @@ async function sendWaitlistFilledNotification(booking) {
     const userId = booking.user_id;
     const instRes = await pool.query('SELECT name FROM instruments WHERE id = $1', [booking.instrument_id]);
     const instrumentName = instRes.rows[0]?.name || 'an instrument';
-    const bookingDate = new Date(booking.start_time).toLocaleString();
+    const startDate = new Date(booking.start_time).toLocaleString();
+    const endDate = new Date(booking.end_time).toLocaleString();
     await notifyUser({
       userId,
       type: 'success',
       title: 'Waitlist slot auto-booked',
-      message: `A ${instrumentName} slot on ${bookingDate} became available and was booked for you.`,
+      message: `A ${instrumentName} slot on ${startDate} became available and was booked for you.`,
       templateType: 'waitlist_filled',
-      templateVars: { instrumentName, bookingDate, bookingId: booking.id },
+      templateVars: { instrumentName, startDate, endDate, status: 'confirmed', bookingId: booking.id },
       fallbackSubject: 'Waitlist Slot Auto-Booked',
-      fallbackHtml: `<h2>A slot you were waiting for is now booked</h2><p>${instrumentName} on ${bookingDate}</p>`
+      fallbackHtml: `<h2>A slot you were waiting for is now booked</h2><p>${instrumentName} on ${startDate}</p>`
     });
   } catch (e) { console.error('sendWaitlistFilledNotification error:', e); }
 }
@@ -885,7 +889,18 @@ async function sendEmailWithTemplate({ to, subject, htmlContent, templateType, v
   global.smtpSettingsCache = settings;
 
   const { logoUrl, siteUrl } = await getLogoAndSiteUrl();
-  const vars = { ...(variables || {}), logoUrl, siteUrl };
+  const appName = 'MSLab Scheduler';
+  const vars = {
+    ...(variables || {}),
+    logoUrl,
+    siteUrl,
+    siteName: appName,
+    footerSiteName: appName,
+    footerTagline: 'Lab Management System',
+    previewText: subject ? `${subject}. You have a new notification from ${appName}.` : `You have a new notification from ${appName}.`
+  };
+  if (!vars.userName) vars.userName = 'there';
+  if (!vars.title) vars.title = subject || appName;
 
   let body = htmlContent || '';
   if (templateType) {
@@ -1584,6 +1599,40 @@ app.post('/api/functions/send-email', requireAuth, async (req, res) => {
   }
 });
 
+app.post('/api/functions/apply-email-template-style', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const style = String(req.body.style || 'card');
+    const presets = style === 'modern' ? modernTemplates : cardTemplates;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      for (const [type, tpl] of Object.entries(presets)) {
+        await client.query(
+          `INSERT INTO email_templates (template_type, subject, html_content)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (template_type)
+           DO UPDATE SET subject = EXCLUDED.subject, html_content = EXCLUDED.html_content, updated_at = now()`,
+          [type, tpl.subject, tpl.html]
+        );
+      }
+      await client.query(
+        `UPDATE app_settings SET email_template_style = $1 WHERE id = '00000000-0000-0000-0000-000000000001'`,
+        [style]
+      );
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+    res.json({ data: { success: true, style }, error: null });
+  } catch (err) {
+    console.error('apply-email-template-style error:', err);
+    res.status(400).json({ data: { success: false, error: err.message }, error: null });
+  }
+});
+
 app.post('/api/functions/s3-test-connection', requireAuth, async (req, res) => {
   try {
     if (S3_PROVIDER === 'local') {
@@ -1810,9 +1859,12 @@ app.get('/api/admin/export/:type', requireAuth, requireAdmin, async (req, res) =
 // Recurring bookings
 app.post('/api/bookings/recurring', requireAuth, async (req, res) => {
   try {
+    const settings = await getSettings();
+    if (!settings?.recurring_bookings_enabled) throw new Error('Recurring bookings are disabled by an administrator');
+
     const { instrumentId, startTime, endTime, purpose, details, repeatWeeks } = req.body;
     const weeks = parseInt(repeatWeeks || '1', 10);
-    if (!instrumentId || !startTime || !endTime || weeks < 1 || weeks > 52) throw new Error('Invalid recurring booking request');
+    if (!instrumentId || !startTime || !endTime || weeks < 2 || weeks > 52) throw new Error('Invalid recurring booking request');
 
     const created = [];
     const skipped = [];

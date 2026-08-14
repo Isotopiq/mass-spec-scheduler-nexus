@@ -4,8 +4,9 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
-import { Mail, Eye, Save } from "lucide-react";
+import { Mail, Eye, Save, Palette } from "lucide-react";
 import { useEmailTemplates } from "../../hooks/useEmailTemplates";
 import { useAppSettings } from "../../hooks/useAppSettings";
 import { toast } from "sonner";
@@ -23,10 +24,18 @@ const EmailTemplatesManagement: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+  const [emailStyle, setEmailStyle] = useState(settings?.email_template_style || "card");
+  const [isApplyingStyle, setIsApplyingStyle] = useState(false);
 
   useEffect(() => {
     loadEmailTemplates();
   }, [loadEmailTemplates]);
+
+  useEffect(() => {
+    if (settings?.email_template_style) {
+      setEmailStyle(settings.email_template_style);
+    }
+  }, [settings?.email_template_style]);
 
   useEffect(() => {
     const template = emailTemplates.find(t => t.templateType === activeTemplate);
@@ -386,14 +395,14 @@ const EmailTemplatesManagement: React.FC = () => {
     const sampleData: Record<string, string> = {
       "{{userName}}": "John Doe",
       "{{instrumentName}}": "Sample Instrument XR-1000",
-      "{{startDate}}": new Date().toLocaleDateString(),
-      "{{endDate}}": new Date(Date.now() + 86400000).toLocaleDateString(),
+      "{{startDate}}": new Date().toLocaleString(),
+      "{{endDate}}": new Date(Date.now() + 86400000).toLocaleString(),
       "{{status}}": "confirmed",
       "{{bookingDate}}": new Date().toLocaleDateString(),
       "{{commentBy}}": "Jane Smith",
       "{{commentAuthor}}": "Jane Smith",
       "{{commentContent}}": "This is a sample comment for testing purposes.",
-      "{{commentTime}}": new Date().toLocaleDateString(),
+      "{{commentTime}}": new Date().toLocaleString(),
       "{{delayMinutes}}": "45",
       "{{reason}}": "Instrument maintenance ran long",
       "{{oldStartDate}}": new Date().toLocaleString(),
@@ -406,7 +415,12 @@ const EmailTemplatesManagement: React.FC = () => {
       "{{resetUrl}}": `${siteUrl}/reset-password?token=sample-token`,
       "{{sentAt}}": new Date().toLocaleString(),
       "{{logoUrl}}": logoUrl,
-      "{{siteUrl}}": siteUrl
+      "{{siteUrl}}": siteUrl,
+      "{{title}}": formData.subject || "Email preview",
+      "{{previewText}}": "You have a new notification from MSLab Scheduler.",
+      "{{siteName}}": "MSLab Scheduler",
+      "{{footerSiteName}}": "MSLab Scheduler",
+      "{{footerTagline}}": "Lab Management System"
     };
 
     Object.entries(sampleData).forEach(([key, value]) => {
@@ -448,6 +462,32 @@ const EmailTemplatesManagement: React.FC = () => {
     setIsSendingTest(false);
   };
 
+  const handleApplyStyle = async () => {
+    setIsApplyingStyle(true);
+    try {
+      const token = localStorage.getItem('standalone_auth_token');
+      const res = await fetch('/api/functions/apply-email-template-style', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token || ''}`
+        },
+        body: JSON.stringify({ style: emailStyle })
+      });
+      const json = await res.json().catch(() => ({ error: { message: 'Unknown error' } }));
+      if (!res.ok || json.data?.success === false) {
+        throw new Error(json.data?.error || json.error?.message || `Failed to apply style (${res.status})`);
+      }
+      toast.success(`Applied ${emailStyle} email style to all templates`);
+      await loadEmailTemplates();
+      setHasChanges(false);
+    } catch (error) {
+      console.error('Error applying email style:', error);
+      toast.error('Failed to apply email style: ' + (error instanceof Error ? error.message : String(error)));
+    }
+    setIsApplyingStyle(false);
+  };
+
   const getPreviewContent = () => {
     let previewContent = formData.htmlContent || "";
     const logoUrl = settings?.logo_url || settings?.favicon_url || `${window.location.origin}/lovable-uploads/40965317-613a-41b7-bc11-d9e8b6cba9ae.png`;
@@ -455,14 +495,14 @@ const EmailTemplatesManagement: React.FC = () => {
     const sampleData: Record<string, string> = {
       "{{userName}}": "John Doe",
       "{{instrumentName}}": "Sample Instrument XR-1000",
-      "{{startDate}}": new Date().toLocaleDateString(),
-      "{{endDate}}": new Date(Date.now() + 86400000).toLocaleDateString(),
+      "{{startDate}}": new Date().toLocaleString(),
+      "{{endDate}}": new Date(Date.now() + 86400000).toLocaleString(),
       "{{status}}": "confirmed",
       "{{bookingDate}}": new Date().toLocaleDateString(),
       "{{commentBy}}": "Jane Smith",
       "{{commentAuthor}}": "Jane Smith",
       "{{commentContent}}": "This is a sample comment for testing purposes.",
-      "{{commentTime}}": new Date().toLocaleDateString(),
+      "{{commentTime}}": new Date().toLocaleString(),
       "{{delayMinutes}}": "45",
       "{{reason}}": "Instrument maintenance ran long",
       "{{oldStartDate}}": new Date().toLocaleString(),
@@ -475,7 +515,12 @@ const EmailTemplatesManagement: React.FC = () => {
       "{{resetUrl}}": `${siteUrl}/reset-password?token=sample-token`,
       "{{sentAt}}": new Date().toLocaleString(),
       "{{logoUrl}}": logoUrl,
-      "{{siteUrl}}": siteUrl
+      "{{siteUrl}}": siteUrl,
+      "{{title}}": formData.subject || "Email preview",
+      "{{previewText}}": "You have a new notification from MSLab Scheduler.",
+      "{{siteName}}": "MSLab Scheduler",
+      "{{footerSiteName}}": "MSLab Scheduler",
+      "{{footerTagline}}": "Lab Management System"
     };
 
     Object.entries(sampleData).forEach(([key, value]) => {
@@ -511,11 +556,11 @@ const EmailTemplatesManagement: React.FC = () => {
     booking_confirmation: ["{{userName}}", "{{instrumentName}}", "{{startDate}}", "{{endDate}}", "{{status}}", "{{logoUrl}}", "{{siteUrl}}"],
     booking_update: ["{{userName}}", "{{instrumentName}}", "{{startDate}}", "{{endDate}}", "{{status}}", "{{logoUrl}}", "{{siteUrl}}"],
     booking_approved: ["{{userName}}", "{{instrumentName}}", "{{startDate}}", "{{endDate}}", "{{status}}", "{{logoUrl}}", "{{siteUrl}}"],
-    booking_denied: ["{{userName}}", "{{instrumentName}}", "{{startDate}}", "{{endDate}}", "{{logoUrl}}", "{{siteUrl}}"],
+    booking_denied: ["{{userName}}", "{{instrumentName}}", "{{startDate}}", "{{endDate}}", "{{status}}", "{{logoUrl}}", "{{siteUrl}}"],
     comment_notification: ["{{userName}}", "{{instrumentName}}", "{{startDate}}", "{{endDate}}", "{{bookingDate}}", "{{commentBy}}", "{{commentContent}}", "{{commentTime}}", "{{logoUrl}}", "{{siteUrl}}"],
     booking_delayed: ["{{userName}}", "{{instrumentName}}", "{{delayMinutes}}", "{{reason}}", "{{oldStartDate}}", "{{newStartDate}}", "{{newEndDate}}", "{{logoUrl}}", "{{siteUrl}}"],
     booking_delay_reversed: ["{{userName}}", "{{instrumentName}}", "{{delayMinutes}}", "{{oldStartDate}}", "{{newStartDate}}", "{{newEndDate}}", "{{logoUrl}}", "{{siteUrl}}"],
-    waitlist_filled: ["{{userName}}", "{{instrumentName}}", "{{bookingDate}}", "{{bookingId}}", "{{logoUrl}}", "{{siteUrl}}"],
+    waitlist_filled: ["{{userName}}", "{{instrumentName}}", "{{startDate}}", "{{endDate}}", "{{status}}", "{{bookingId}}", "{{logoUrl}}", "{{siteUrl}}"],
     swap_status: ["{{requesterName}}", "{{recipientName}}", "{{status}}", "{{logoUrl}}", "{{siteUrl}}"],
     notification_digest: ["{{userName}}", "{{notifications}}", "{{logoUrl}}", "{{siteUrl}}"],
     password_reset: ["{{resetUrl}}", "{{userName}}", "{{logoUrl}}", "{{siteUrl}}"],
@@ -530,6 +575,37 @@ const EmailTemplatesManagement: React.FC = () => {
           <p className="text-sm text-muted-foreground">
             Customize the HTML templates used for email notifications.
           </p>
+        </div>
+
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 rounded-lg border p-4">
+          <div className="space-y-1">
+            <Label htmlFor="emailStyle" className="flex items-center gap-2">
+              <Palette className="w-4 h-4" />
+              Email design style
+            </Label>
+            <p className="text-sm text-muted-foreground">
+              Choose a global style and apply it to all templates. Existing template edits will be overwritten.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Select value={emailStyle} onValueChange={setEmailStyle}>
+              <SelectTrigger id="emailStyle" className="w-40">
+                <SelectValue placeholder="Style" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="card">Card</SelectItem>
+                <SelectItem value="modern">Modern</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleApplyStyle}
+              disabled={isApplyingStyle}
+            >
+              {isApplyingStyle ? "Applying..." : "Apply"}
+            </Button>
+          </div>
         </div>
 
         <Tabs value={activeTemplate} onValueChange={setActiveTemplate}>
