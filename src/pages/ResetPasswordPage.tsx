@@ -7,8 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-
-const DEFAULT_LOGO = "/lovable-uploads/40965317-613a-41b7-bc11-d9e8b6cba9ae.png";
+import { SiteLogo } from "@/components/SiteLogo";
 
 const ResetPasswordPage: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -53,10 +52,11 @@ const ResetPasswordPage: React.FC = () => {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
         <div className="text-center">
-          <img
-            src={settings?.logo_url || DEFAULT_LOGO}
+          <SiteLogo
+            src={settings?.logo_url}
             alt="TeSlab Lab Logo"
             className="mx-auto h-16 w-auto object-contain mb-4"
+            fallbackClassName="mx-auto h-16 w-16 mb-4"
           />
         </div>
         <Card>

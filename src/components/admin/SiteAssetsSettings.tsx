@@ -7,6 +7,7 @@ import { supabase } from "../../integrations/supabase/client";
 import { toast } from "sonner";
 import { Loader2, Upload, Image as ImageIcon } from "lucide-react";
 import { ImageCropDialog } from "@/components/ui/ImageCropDialog";
+import { SiteLogo } from "@/components/SiteLogo";
 
 const DEFAULT_LOGO = "/lovable-uploads/40965317-613a-41b7-bc11-d9e8b6cba9ae.png";
 const DEFAULT_FAVICON = "/lovable-uploads/c9351e76-a090-4113-bffa-7ee6800178c0.png";
@@ -108,10 +109,11 @@ const SiteAssetsSettings: React.FC = () => {
         <div className="space-y-3">
           <Label>Logo</Label>
           <div className="border rounded-md p-4 flex items-center justify-center bg-muted">
-            <img
-              src={settings.logo_url || DEFAULT_LOGO}
+            <SiteLogo
+              src={settings.logo_url}
               alt="Site logo"
               className="max-h-16 object-contain"
+              fallbackClassName="h-16 w-16"
             />
           </div>
           <input
@@ -140,10 +142,11 @@ const SiteAssetsSettings: React.FC = () => {
         <div className="space-y-3">
           <Label>Favicon</Label>
           <div className="border rounded-md p-4 flex items-center justify-center bg-muted">
-            <img
-              src={settings.favicon_url || DEFAULT_FAVICON}
+            <SiteLogo
+              src={settings.favicon_url}
               alt="Favicon"
               className="h-8 w-8 object-contain"
+              fallbackSrc={DEFAULT_FAVICON}
             />
           </div>
           <input

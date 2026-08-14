@@ -27,8 +27,7 @@ import {
 } from "../ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 import { NotificationsDropdown } from "./NotificationsDropdown";
-
-const DEFAULT_LOGO = "/lovable-uploads/40965317-613a-41b7-bc11-d9e8b6cba9ae.png";
+import { SiteLogo } from "../SiteLogo";
 
 const Navbar: React.FC = () => {
   const { user, logout } = useAuth();
@@ -81,9 +80,9 @@ const Navbar: React.FC = () => {
             </div>
 
             <Link to="/" className="flex items-center flex-shrink-0 min-w-0">
-              <img 
-                src={settings?.logo_url || DEFAULT_LOGO} 
-                alt="Site logo" 
+              <SiteLogo
+                src={settings?.logo_url}
+                alt="Site logo"
                 className="h-8 xl:h-10 w-auto max-w-[120px] sm:max-w-[140px] object-contain"
               />
               <span className="ml-2 text-base font-bold text-gray-900 hidden sm:inline whitespace-nowrap">

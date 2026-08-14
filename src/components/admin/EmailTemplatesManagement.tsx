@@ -424,7 +424,7 @@ const EmailTemplatesManagement: React.FC = () => {
     };
 
     Object.entries(sampleData).forEach(([key, value]) => {
-      testSubject = testSubject.replace(new RegExp(key.replace(/[{}]/g, '\\$&'), 'g'), value);
+      testSubject = testSubject.split(key).join(value);
     });
 
     try {
@@ -489,10 +489,28 @@ const EmailTemplatesManagement: React.FC = () => {
   };
 
   const getPreviewContent = () => {
+    const escapeHtml = (str: string) =>
+      str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
     let previewContent = formData.htmlContent || "";
-    const logoUrl = settings?.logo_url || settings?.favicon_url || `${window.location.origin}/lovable-uploads/40965317-613a-41b7-bc11-d9e8b6cba9ae.png`;
-    const siteUrl = window.location.origin;
-    const sampleData: Record<string, string> = {
+    const rawSiteUrl = window.location.origin;
+    const rawLogoUrl =
+      settings?.logo_url ||
+      settings?.favicon_url ||
+      `${rawSiteUrl}/lovable-uploads/40965317-613a-41b7-bc11-d9e8b6cba9ae.png`;
+    const logoUrl =
+      rawLogoUrl.startsWith('/') && !rawLogoUrl.startsWith('//')
+        ? `${rawSiteUrl}${rawLogoUrl}`
+        : rawLogoUrl;
+    const siteUrl = rawSiteUrl;
+
+    // URL placeholders are kept raw so the backend duplicate-logo guard can match them.
+    const rawSampleData: Record<string, string> = {
       "{{userName}}": "John Doe",
       "{{instrumentName}}": "Sample Instrument XR-1000",
       "{{startDate}}": new Date().toLocaleString(),
@@ -523,8 +541,17 @@ const EmailTemplatesManagement: React.FC = () => {
       "{{footerTagline}}": "Lab Management System"
     };
 
+    const sampleData: Record<string, string> = {};
+    Object.entries(rawSampleData).forEach(([key, value]) => {
+      if (key === "{{notifications}}" || key === "{{logoUrl}}" || key === "{{siteUrl}}" || key === "{{resetUrl}}") {
+        sampleData[key] = value;
+      } else {
+        sampleData[key] = escapeHtml(value);
+      }
+    });
+
     Object.entries(sampleData).forEach(([key, value]) => {
-      previewContent = previewContent.replace(new RegExp(key.replace(/[{}]/g, '\\$&'), 'g'), value);
+      previewContent = previewContent.split(key).join(value);
     });
 
     const logoHeader = logoUrl

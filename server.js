@@ -923,7 +923,8 @@ async function sendEmailWithTemplate({ to, subject, htmlContent, templateType, v
   const isFullHtml = /^\s*<!(DOCTYPE|doctype)/i.test(body) || /<html/i.test(body);
   if (isFullHtml) {
     // Full templates already include the logo via {{logoUrl}}. If they do not, inject a logo header.
-    if (logoUrl && !body.includes(logoUrl)) {
+    // Pre-built htmlContent (e.g. test email preview) already contains a logo, so skip injection there.
+    if (logoUrl && !body.includes(logoUrl) && templateType) {
       const injected = `<div style="text-align:center;padding:24px 0;border-bottom:1px solid #e5e7eb;"><a href="${siteUrl || '#'}" target="_blank" style="display:inline-block;"><img src="${logoUrl}" alt="MSLab Scheduler" style="max-height:64px;max-width:200px;border:0;"></a></div>`;
       body = body.replace(/<body([^>]*)>/i, `<body$1>${injected}`);
     }

@@ -257,7 +257,7 @@ const storageClient = {
         return json;
       },
       getPublicUrl(path: string) {
-        return { data: { publicUrl: `${window.location.origin}/uploads/${bucket}/${path}` } };
+        return { data: { publicUrl: `/uploads/${bucket}/${path}` } };
       }
     };
   }
