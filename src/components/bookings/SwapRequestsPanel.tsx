@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useBookingSwaps } from "../../hooks/useBookingSwaps";
+import { useAuth } from "../../contexts/AuthContext";
 import { BookingSwap } from "../../types";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
@@ -11,6 +12,7 @@ export const SwapRequestsPanel: React.FC = () => {
   const [swaps, setSwaps] = useState<BookingSwap[]>([]);
   const [activeTab, setActiveTab] = useState("pending");
   const { fetchSwaps, respondToSwap, isLoading } = useBookingSwaps();
+  const { user } = useAuth();
 
   const load = useCallback(async () => {
     try {
@@ -106,7 +108,7 @@ export const SwapRequestsPanel: React.FC = () => {
                 </div>
               </div>
 
-              {swap.status === "pending" && (
+              {swap.status === "pending" && user?.id === swap.recipientUserId && (
                 <div className="flex gap-2">
                   <Button size="sm" onClick={() => handleRespond(swap.id, "accept")}>
                     Accept
@@ -117,7 +119,7 @@ export const SwapRequestsPanel: React.FC = () => {
                 </div>
               )}
 
-              {swap.status !== "approved" && swap.status !== "denied" && swap.status !== "cancelled" && swap.status !== "pending" && (
+              {user?.id === swap.requesterUserId && !["approved", "denied", "cancelled"].includes(swap.status) && (
                 <Button size="sm" variant="outline" onClick={() => handleRespond(swap.id, "cancel")}>
                   Cancel
                 </Button>
