@@ -2,15 +2,19 @@
 // Utility function to check if a user has opted in for email notifications
 export const getUserEmailPreferences = (): { emailNotifications: boolean; bookingReminders: boolean } => {
   const savedSettings = localStorage.getItem('mslab_user_settings');
-  
+
   if (savedSettings) {
-    const settings = JSON.parse(savedSettings);
-    return {
-      emailNotifications: settings.emailNotifications ?? true, // Default to true
-      bookingReminders: settings.bookingReminders ?? true    // Default to true
-    };
+    try {
+      const settings = JSON.parse(savedSettings);
+      return {
+        emailNotifications: settings.emailNotifications ?? true, // Default to true
+        bookingReminders: settings.bookingReminders ?? true    // Default to true
+      };
+    } catch {
+      // fall through to defaults
+    }
   }
-  
+
   // If no settings saved, default to opted in
   return {
     emailNotifications: true,

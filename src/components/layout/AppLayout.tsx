@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import Navbar from "./Navbar";
 import { useAuth } from "../../contexts/AuthContext";
@@ -12,7 +12,7 @@ const AppLayout: React.FC = () => {
   const { isLoading: bookingLoading, isInitialized } = useOptimizedBooking();
   const location = useLocation();
   const navigate = useNavigate();
-  const [lastActivity, setLastActivity] = useState<number>(Date.now());
+  const lastActivityRef = useRef<number>(Date.now());
   
   console.log("AppLayout: Auth loading:", authLoading, "Authenticated:", isAuthenticated, "Path:", location.pathname);
   
@@ -20,7 +20,7 @@ const AppLayout: React.FC = () => {
   useEffect(() => {
     const events = ['click', 'keydown', 'scroll'];
     const activityHandler = () => {
-      setLastActivity(Date.now());
+      lastActivityRef.current = Date.now();
     };
     
     events.forEach(event => {
@@ -37,25 +37,32 @@ const AppLayout: React.FC = () => {
   // Check for auto-logout based on user's settings
   useEffect(() => {
     if (isAuthenticated && user) {
-      const savedSettings = localStorage.getItem('mslab_user_settings');
-      const settings = savedSettings ? JSON.parse(savedSettings) : { autoLogout: 30 };
-      const autoLogoutTime = settings.autoLogout * 60 * 1000;
-      
+      let autoLogoutMinutes = 30;
+      try {
+        const savedSettings = localStorage.getItem('mslab_user_settings');
+        const settings = savedSettings ? JSON.parse(savedSettings) : { autoLogout: 30 };
+        autoLogoutMinutes = Number(settings.autoLogout) || 30;
+      } catch {
+        autoLogoutMinutes = 30;
+      }
+      const autoLogoutTime = autoLogoutMinutes * 60 * 1000;
+      if (!autoLogoutTime || autoLogoutTime <= 0) return;
+
       const checkActivityInterval = setInterval(() => {
         const currentTime = Date.now();
-        const elapsedTime = currentTime - lastActivity;
-        
+        const elapsedTime = currentTime - lastActivityRef.current;
+
         if (elapsedTime > autoLogoutTime) {
-          console.log(`Auto logout triggered after ${settings.autoLogout} minutes of inactivity`);
+          console.log(`Auto logout triggered after ${autoLogoutMinutes} minutes of inactivity`);
           clearInterval(checkActivityInterval);
           navigate('/login', { state: { autoLogout: true } });
           window.location.reload();
         }
       }, 10000);
-      
+
       return () => clearInterval(checkActivityInterval);
     }
-  }, [isAuthenticated, user, lastActivity, navigate]);
+  }, [isAuthenticated, user, navigate]);
   
   // Handle authentication redirect
   useEffect(() => {

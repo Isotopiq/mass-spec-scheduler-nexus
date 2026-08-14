@@ -188,9 +188,8 @@ function authorizeAction(table, action, user) {
   const perms = ALLOWED_TABLES[table];
   if (!perms) throw new Error('Unknown table');
   const required = perms[action];
+  if (!user) throw new Error('Authentication required');
   if (required === 'admin' && user.role !== 'admin') throw new Error('Admin access required');
-  if (required === 'authenticated' && !user) throw new Error('Authentication required');
-  if (required === 'owner-or-admin' && user.role !== 'admin' && action === 'insert' && !user) throw new Error('Authentication required');
 }
 
 async function getSettings() {
@@ -479,7 +478,7 @@ async function handleRestQuery(req, res) {
     let preUpdateBookings = [];
     if (table === 'bookings' && action === 'delete') {
       try {
-        const { where: preWhere, params: preParams } = buildWhere(filters, table, user, 'select', null, 1);
+        const { where: preWhere, params: preParams } = buildWhere(filters, table, user, 'delete', null, 1);
         const preResult = await pool.query(`SELECT id, instrument_id, start_time, end_time FROM "${table}" ${preWhere}`, preParams);
         preDeleteBookings = preResult.rows;
       } catch (e) {
@@ -488,7 +487,7 @@ async function handleRestQuery(req, res) {
     }
     if (table === 'bookings' && action === 'update' && values?.status) {
       try {
-        const { where: preWhere, params: preParams } = buildWhere(filters, table, user, 'select', null, 1);
+        const { where: preWhere, params: preParams } = buildWhere(filters, table, user, 'update', null, 1);
         const preResult = await pool.query(`SELECT id, user_id, instrument_id, start_time, end_time, status FROM "${table}" ${preWhere}`, preParams);
         preUpdateBookings = preResult.rows;
       } catch (e) {
@@ -500,7 +499,7 @@ async function handleRestQuery(req, res) {
     const rows = queryResult.rows;
     const rowCount = queryResult.rowCount;
 
-    if (table === 'bookings' && action === 'delete') {
+    if (table === 'bookings' && action === 'delete' && rowCount > 0) {
       for (const b of preDeleteBookings) {
         autoFillWaitlist(b.instrument_id, b.start_time, b.end_time);
       }
@@ -854,10 +853,10 @@ async function sendEmailDigest(userId, frequency) {
     if (!userRes.rows.length) return;
     const { email, name } = userRes.rows[0];
 
-    const since = frequency === 'weekly' ? "now() - interval '7 days'" : "now() - interval '1 day'";
+    const days = frequency === 'weekly' ? 7 : 1;
     const { rows } = await pool.query(
-      `SELECT * FROM notifications WHERE user_id = $1 AND created_at > ${since} ORDER BY created_at DESC`,
-      [userId]
+      `SELECT * FROM notifications WHERE user_id = $1 AND created_at > now() - make_interval(days => $2) ORDER BY created_at DESC`,
+      [userId, days]
     );
     if (!rows.length) return;
 
@@ -1003,8 +1002,19 @@ async function s3Bucket() {
   return settings.bucket || 'mass-spec-sequences';
 }
 
+function sanitizeFileName(name) {
+  return name ? path.basename(name.replace(/[\\/]+/g, '_')) : 'upload';
+}
+
 function localSequencePath(bookingId, filename) {
-  return path.join(UPLOAD_DIR, 'sequences', bookingId, filename);
+  return path.join(UPLOAD_DIR, 'sequences', bookingId, sanitizeFileName(filename));
+}
+
+async function assertBookingAccess(bookingId, user) {
+  const { rows } = await pool.query('SELECT user_id FROM bookings WHERE id = $1', [bookingId]);
+  if (!rows.length) throw new Error('Booking not found');
+  if (user.role === 'admin' || rows[0].user_id === user.id) return;
+  throw new Error('Not authorized for this booking');
 }
 
 app.use(cors());
@@ -1024,7 +1034,7 @@ app.post('/api/auth/signup', async (req, res) => {
 
     const { rows: countRows } = await pool.query('SELECT COUNT(*) AS c FROM profiles');
     const isFirst = Number(countRows[0].c) === 0;
-    const role = isFirst || email === 'eddy@kapelczak.com' ? 'admin' : 'user';
+    const role = isFirst ? 'admin' : 'user';
     const hash = await bcrypt.hash(password, 10);
 
     const { rows } = await pool.query(
@@ -1206,8 +1216,14 @@ async function sendSwapStatusNotification(swap, status) {
   try {
     const requesterName = swap.requester_name || 'Someone';
     const recipientName = swap.recipient_name || 'Someone';
+    const normalized = String(status).toLowerCase();
+    let statusPhrase;
+    if (normalized === 'pending') statusPhrase = `is waiting for a response from ${recipientName}`;
+    else if (['accepted', 'approved'].includes(normalized)) statusPhrase = 'has been accepted';
+    else if (['declined', 'denied'].includes(normalized)) statusPhrase = 'has been declined';
+    else statusPhrase = `is ${normalized}`;
     const title = `Swap request ${status}`;
-    const message = `Your swap request with ${status === 'pending' ? recipientName : status === 'accepted' || status === 'approved' ? 'has been accepted' : 'has been declined'}.`;
+    const message = `The swap request between ${requesterName} and ${recipientName} ${statusPhrase}.`;
     for (const userId of [swap.requester_user_id, swap.recipient_user_id]) {
       if (!userId) continue;
       await notifyUser({
@@ -1228,10 +1244,13 @@ async function getSwapWithBookings(swapId) {
   const { rows: swapRows } = await pool.query(
     `SELECT s.*,
             rb.start_time as rb_start, rb.end_time as rb_end, rb.instrument_id as rb_instrument_id, rb.user_id as rb_user_id, rb.purpose as rb_purpose,
-            tb.start_time as tb_start, tb.end_time as tb_end, tb.instrument_id as tb_instrument_id, tb.user_id as tb_user_id, tb.purpose as tb_purpose
+            tb.start_time as tb_start, tb.end_time as tb_end, tb.instrument_id as tb_instrument_id, tb.user_id as tb_user_id, tb.purpose as tb_purpose,
+            requester.name AS requester_name, recipient.name AS recipient_name
      FROM booking_swaps s
      JOIN bookings rb ON rb.id = s.requester_booking_id
      JOIN bookings tb ON tb.id = s.recipient_booking_id
+     LEFT JOIN profiles requester ON requester.id = s.requester_user_id
+     LEFT JOIN profiles recipient ON recipient.id = s.recipient_user_id
      WHERE s.id = $1`,
     [swapId]
   );
@@ -1389,9 +1408,10 @@ app.post('/api/booking-swaps', requireAuth, async (req, res) => {
       [requesterBookingId, recipientBookingId, requesterBooking.user_id, recipientBooking.user_id]
     );
 
-    sendSwapStatusNotification(rows[0], 'pending');
+    const newSwap = await getSwapWithBookings(rows[0].id);
+    sendSwapStatusNotification(newSwap, 'pending');
 
-    res.json({ data: rows[0], error: null });
+    res.json({ data: newSwap || rows[0], error: null });
   } catch (err) {
     console.error('create booking swap error:', err);
     res.status(400).json({ data: null, error: { message: err.message } });
@@ -1601,28 +1621,61 @@ app.post('/api/waitlist/:id/cancel', requireAuth, async (req, res) => {
   }
 });
 
+function sanitizeStoragePath(input) {
+  if (typeof input !== 'string') return null;
+  const normalized = path.normalize(input.replace(/\\/g, '/'));
+  if (path.isAbsolute(normalized) || normalized.startsWith('..') || normalized.includes('../')) return null;
+  return normalized.replace(/^\/+/, '');
+}
+
+function assertStorageAccess(bucket, filePath, user) {
+  const adminBuckets = ['site-assets', 'instrument-images', 'logos', 'favicons'];
+  if (adminBuckets.includes(bucket)) {
+    if (user.role !== 'admin') throw new Error('Admin access required for this storage bucket');
+    return;
+  }
+  if (bucket === 'profile-images') {
+    const prefix = user.id + '/';
+    if (!filePath.startsWith(prefix)) throw new Error('Profile images must be uploaded to your own directory');
+    return;
+  }
+  throw new Error('Unknown storage bucket');
+}
+
 // Storage
 const upload = multer({ storage: multer.memoryStorage() });
 
 app.post('/api/storage/upload', requireAuth, upload.single('file'), async (req, res) => {
   try {
-    const { bucket, path: filePath, upsert } = req.body;
+    const { bucket, path: filePath } = req.body;
     if (!req.file) throw new Error('No file uploaded');
+    if (typeof bucket !== 'string' || typeof filePath !== 'string') throw new Error('Invalid upload parameters');
+    const safePath = sanitizeStoragePath(filePath);
+    if (!safePath) throw new Error('Invalid file path');
+    assertStorageAccess(bucket, safePath, req.user);
     const bucketDir = path.join(UPLOAD_DIR, bucket);
     fs.mkdirSync(bucketDir, { recursive: true });
-    const target = path.join(bucketDir, filePath);
+    const target = path.join(bucketDir, safePath);
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, req.file.buffer);
-    res.json({ data: { path: `${bucket}/${filePath}` }, error: null });
+    res.json({ data: { path: `${bucket}/${safePath}` }, error: null });
   } catch (err) {
     res.status(400).json({ data: null, error: { message: err.message } });
   }
 });
 
 app.get('/api/storage/public-url', (req, res) => {
-  const { bucket, path: filePath } = req.query;
-  const url = `${req.protocol}://${req.get('host')}/uploads/${encodeURIComponent(bucket)}/${filePath}`;
-  res.json({ data: { publicUrl: url }, error: null });
+  try {
+    const { bucket, path: filePath } = req.query;
+    if (typeof bucket !== 'string' || typeof filePath !== 'string') throw new Error('Invalid parameters');
+    const safePath = sanitizeStoragePath(filePath);
+    if (!safePath) throw new Error('Invalid file path');
+    const encodedPath = safePath.split('/').map(encodeURIComponent).join('/');
+    const url = `${req.protocol}://${req.get('host')}/uploads/${encodeURIComponent(bucket)}/${encodedPath}`;
+    res.json({ data: { publicUrl: url }, error: null });
+  } catch (err) {
+    res.status(400).json({ data: null, error: { message: err.message } });
+  }
 });
 
 // Functions
@@ -1726,14 +1779,18 @@ async function getBookingSequenceFile(bookingId) {
 async function saveSequenceFileLocal(bookingId, file) {
   const dir = path.join(UPLOAD_DIR, 'sequences', bookingId);
   fs.mkdirSync(dir, { recursive: true });
-  const target = path.join(dir, file.originalname);
+  const safeName = sanitizeFileName(file.originalname);
+  const target = path.join(dir, safeName);
   fs.writeFileSync(target, file.buffer);
-  const key = `sequences/${bookingId}/${file.originalname}`;
-  return { key, name: file.originalname, size: file.size, path: target };
+  const key = `sequences/${bookingId}/${safeName}`;
+  return { key, name: safeName, size: file.size, path: target };
 }
 
 async function deleteSequenceFileLocal(key) {
-  const target = path.join(UPLOAD_DIR, key);
+  if (typeof key !== 'string') return;
+  const normalized = key.replace(/\\/g, '/');
+  if (path.isAbsolute(normalized) || normalized.startsWith('..') || !normalized.startsWith('sequences/')) return;
+  const target = path.join(UPLOAD_DIR, normalized);
   if (fs.existsSync(target)) fs.unlinkSync(target);
 }
 
@@ -1816,7 +1873,10 @@ app.post('/api/functions/s3-upload-sequence', requireAuth, upload.single('file')
   try {
     const { bookingId } = req.body;
     if (!req.file) throw new Error('No file uploaded');
+    if (!bookingId) throw new Error('Booking ID required');
+    await assertBookingAccess(bookingId, req.user);
     const settings = await getS3Settings();
+    const safeName = sanitizeFileName(req.file.originalname);
     if (settings.provider === 'local') {
       const { key, name, size } = await saveSequenceFileLocal(bookingId, req.file);
       await updateBookingSequenceFile(bookingId, key, name, size);
@@ -1825,10 +1885,10 @@ app.post('/api/functions/s3-upload-sequence', requireAuth, upload.single('file')
     const s3 = await getS3Client();
     if (!s3) throw new Error('S3 not configured');
     const prefix = (settings.pathPrefix || 'lcms-sequences/').replace(/\/$/, '') + '/';
-    const key = prefix + `${bookingId}/${req.file.originalname}`;
+    const key = prefix + `${bookingId}/${safeName}`;
     await s3.send(new PutObjectCommand({ Bucket: settings.bucket, Key: key, Body: req.file.buffer, ContentType: req.file.mimetype }));
-    await updateBookingSequenceFile(bookingId, key, req.file.originalname, req.file.size);
-    res.json({ key, name: req.file.originalname, size: req.file.size, uploadedAt: new Date().toISOString() });
+    await updateBookingSequenceFile(bookingId, key, safeName, req.file.size);
+    res.json({ key, name: safeName, size: req.file.size, uploadedAt: new Date().toISOString() });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -1837,11 +1897,15 @@ app.post('/api/functions/s3-upload-sequence', requireAuth, upload.single('file')
 app.get('/api/functions/s3-download-sequence', requireAuth, async (req, res) => {
   try {
     const { bookingId } = req.query;
+    if (!bookingId) throw new Error('Booking ID required');
+    await assertBookingAccess(bookingId, req.user);
     const info = await getBookingSequenceFile(bookingId);
     if (!info || !info.sequence_file_key) throw new Error('No sequence file for this booking');
     const settings = await getS3Settings();
     if (settings.provider === 'local') {
-      const target = path.join(UPLOAD_DIR, info.sequence_file_key);
+      const localKey = String(info.sequence_file_key).replace(/\\/g, '/');
+      if (localKey.includes('..') || localKey.startsWith('/')) throw new Error('Invalid file key');
+      const target = path.join(UPLOAD_DIR, localKey);
       if (!fs.existsSync(target)) throw new Error('File not found');
       return res.sendFile(path.resolve(target));
     }
@@ -1858,6 +1922,8 @@ app.get('/api/functions/s3-download-sequence', requireAuth, async (req, res) => 
 app.post('/api/functions/s3-delete-sequence', requireAuth, async (req, res) => {
   try {
     const { bookingId } = req.body;
+    if (!bookingId) throw new Error('Booking ID required');
+    await assertBookingAccess(bookingId, req.user);
     const info = await getBookingSequenceFile(bookingId);
     const settings = await getS3Settings();
     if (info && info.sequence_file_key) {
@@ -1879,7 +1945,10 @@ app.post('/api/functions/s3-replace-sequence', requireAuth, upload.single('file'
   try {
     const { bookingId } = req.body;
     if (!req.file) throw new Error('No file uploaded');
+    if (!bookingId) throw new Error('Booking ID required');
+    await assertBookingAccess(bookingId, req.user);
     const settings = await getS3Settings();
+    const safeName = sanitizeFileName(req.file.originalname);
     const old = await getBookingSequenceFile(bookingId);
     if (old && old.sequence_file_key) {
       if (settings.provider === 'local') await deleteSequenceFileLocal(old.sequence_file_key);
@@ -1897,10 +1966,10 @@ app.post('/api/functions/s3-replace-sequence', requireAuth, upload.single('file'
     const s3 = await getS3Client();
     if (!s3) throw new Error('S3 not configured');
     const prefix = (settings.pathPrefix || 'lcms-sequences/').replace(/\/$/, '') + '/';
-    const key = prefix + `${bookingId}/${req.file.originalname}`;
+    const key = prefix + `${bookingId}/${safeName}`;
     await s3.send(new PutObjectCommand({ Bucket: settings.bucket, Key: key, Body: req.file.buffer, ContentType: req.file.mimetype }));
-    await updateBookingSequenceFile(bookingId, key, req.file.originalname, req.file.size);
-    res.json({ key, name: req.file.originalname, size: req.file.size, uploadedAt: new Date().toISOString() });
+    await updateBookingSequenceFile(bookingId, key, safeName, req.file.size);
+    res.json({ key, name: safeName, size: req.file.size, uploadedAt: new Date().toISOString() });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -2022,8 +2091,16 @@ app.post('/api/bookings/recurring', requireAuth, async (req, res) => {
       const instStart = s.toISOString();
       const instEnd = e.toISOString();
       try {
-        const hasConflict = await findBookingConflict(null, instStart, instEnd, instrumentId, []);
-        if (hasConflict) throw new Error('Booking conflict');
+        const instanceValues = {
+          user_id: req.user.id,
+          instrument_id: instrumentId,
+          start_time: instStart,
+          end_time: instEnd,
+          purpose: purpose || 'Recurring booking',
+          details,
+          status: 'confirmed'
+        };
+        await enforceBookingRules('insert', instanceValues, 'bookings', [], req.user);
         const { rows } = await pool.query(
           `INSERT INTO bookings (user_id, instrument_id, start_time, end_time, purpose, details, status, recurrence_rule, parent_booking_id)
            VALUES ($1, $2, $3, $4, $5, $6, 'confirmed', $7, $8) RETURNING *`,
@@ -2174,7 +2251,9 @@ app.post('/api/schedule-delays/:id/reverse', requireAuth, requireAdmin, async (r
     for (const record of records) {
       const booking = currentById.get(record.booking_id);
       if (!booking) { skipped++; continue; }
-      if (new Date(booking.start_time).getTime() !== new Date(record.new_start).getTime() || new Date(booking.end_time).getTime() !== new Date(record.new_end).getTime()) {
+      const startMatches = Math.round(new Date(booking.start_time).getTime() / 1000) === Math.round(new Date(record.new_start).getTime() / 1000);
+      const endMatches = Math.round(new Date(booking.end_time).getTime() / 1000) === Math.round(new Date(record.new_end).getTime() / 1000);
+      if (!startMatches || !endMatches) {
         skipped++; continue;
       }
       await pool.query(

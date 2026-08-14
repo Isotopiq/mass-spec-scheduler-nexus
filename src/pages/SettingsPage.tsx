@@ -27,7 +27,14 @@ const SettingsPage: React.FC = () => {
   // Initialize settings from localStorage or default values (with email notifications enabled by default)
   const [settings, setSettings] = useState<UserSettings>(() => {
     const savedSettings = localStorage.getItem('mslab_user_settings');
-    return savedSettings ? JSON.parse(savedSettings) : {
+    if (savedSettings) {
+      try {
+        return JSON.parse(savedSettings);
+      } catch {
+        // fall through to defaults
+      }
+    }
+    return {
       emailNotifications: true, // Default to enabled
       bookingReminders: true,   // Default to enabled
       darkMode: false,
