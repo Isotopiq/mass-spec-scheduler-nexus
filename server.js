@@ -1130,9 +1130,14 @@ app.post('/api/auth/reset-password', async (req, res) => {
 
 app.post('/api/auth/update-password', requireAuth, async (req, res) => {
   try {
-    const { password } = req.body;
-    if (!password || password.length < 6) throw new Error('Password must be at least 6 characters');
-    const hash = await bcrypt.hash(password, 10);
+    const { oldPassword, newPassword } = req.body;
+    if (!oldPassword || !newPassword) throw new Error('Old and new password required');
+    if (newPassword.length < 6) throw new Error('New password must be at least 6 characters');
+    const { rows } = await pool.query('SELECT password_hash FROM profiles WHERE id = $1', [req.user.id]);
+    if (!rows.length) throw new Error('User not found');
+    const valid = await bcrypt.compare(oldPassword, rows[0].password_hash || '');
+    if (!valid) throw new Error('Current password is incorrect');
+    const hash = await bcrypt.hash(newPassword, 10);
     await pool.query('UPDATE profiles SET password_hash = $1 WHERE id = $2', [hash, req.user.id]);
     res.json({ data: {}, error: null });
   } catch (err) {

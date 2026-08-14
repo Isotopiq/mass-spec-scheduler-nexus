@@ -14,7 +14,7 @@ interface AuthContextType {
   login: (email: string, password: string, rememberMe?: boolean) => Promise<void>;
   logout: () => Promise<void>;
   updateUserProfile: (updatedUser: User) => void;
-  updateUserPassword: (userId: string, newPassword: string) => Promise<void>;
+  updateUserPassword: (userId: string, newPassword: string, oldPassword?: string) => Promise<void>;
   createUser: (userData: CreateUserData) => Promise<void>;
   deleteUser: (userId: string) => void;
   refreshCurrentUser: () => Promise<void>;
@@ -220,19 +220,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const updateUserPassword = async (userId: string, newPassword: string) => {
+  const updateUserPassword = async (userId: string, newPassword: string, oldPassword?: string) => {
     if (!newPassword || newPassword.length < 6) {
       throw new Error('Password must be at least 6 characters long.');
     }
     const isAdmin = user?.role === 'admin' && user?.id !== userId;
     const token = localStorage.getItem('standalone_auth_token');
-    const res = await fetch(`${API_URL}/api/auth/${isAdmin ? 'admin-update-password' : 'update-password'}`, {
+    const url = `${API_URL}/api/auth/${isAdmin ? 'admin-update-password' : 'update-password'}`;
+    const body = isAdmin ? { userId, password: newPassword } : { oldPassword, newPassword };
+    const res = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token || ''}`,
       },
-      body: JSON.stringify(isAdmin ? { userId, password: newPassword } : { password: newPassword }),
+      body: JSON.stringify(body),
     });
     const json = await res.json();
     if (!res.ok || json.error) throw new Error(json.error?.message || 'Password update failed');

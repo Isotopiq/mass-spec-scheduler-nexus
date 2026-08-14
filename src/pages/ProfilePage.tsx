@@ -32,6 +32,8 @@ const ProfilePage: React.FC = () => {
     user?.profileImage || null
   );
   const [newPassword, setNewPassword] = useState("");
+  const [oldPassword, setOldPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [isSubmittingPassword, setIsSubmittingPassword] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [cropOpen, setCropOpen] = useState(false);
@@ -147,8 +149,13 @@ const ProfilePage: React.FC = () => {
   }, []);
 
   const handleChangePassword = useCallback(async () => {
+    if (!oldPassword.trim()) {
+      toast.error("Please enter your current password.");
+      return;
+    }
+
     if (!newPassword.trim()) {
-      toast.error("Please provide a valid password.");
+      toast.error("Please enter a new password.");
       return;
     }
 
@@ -157,22 +164,29 @@ const ProfilePage: React.FC = () => {
       return;
     }
 
+    if (newPassword !== confirmPassword) {
+      toast.error("New passwords do not match.");
+      return;
+    }
+
     if (!user) return;
 
     setIsSubmittingPassword(true);
-    
+
     try {
-      await updateUserPassword(user.id, newPassword);
-      
+      await updateUserPassword(user.id, newPassword, oldPassword);
+
       toast.success("Your password has been updated successfully.");
       setIsPasswordDialogOpen(false);
+      setOldPassword("");
       setNewPassword("");
+      setConfirmPassword("");
     } catch (error) {
-      toast.error("There was an error updating the password.");
+      toast.error(error instanceof Error ? error.message : "There was an error updating the password.");
     } finally {
       setIsSubmittingPassword(false);
     }
-  }, [user, newPassword, updateUserPassword]);
+  }, [user, oldPassword, newPassword, confirmPassword, updateUserPassword]);
 
   const handleRevert = useCallback(() => {
     setName(user?.name || "");
@@ -336,6 +350,10 @@ const ProfilePage: React.FC = () => {
         newPassword={newPassword}
         setNewPassword={setNewPassword}
         isSubmitting={isSubmittingPassword}
+        oldPassword={oldPassword}
+        setOldPassword={setOldPassword}
+        confirmPassword={confirmPassword}
+        setConfirmPassword={setConfirmPassword}
       />
 
       <ImageCropDialog
