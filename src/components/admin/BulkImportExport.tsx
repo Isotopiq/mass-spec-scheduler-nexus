@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { Upload, Download } from 'lucide-react';
+import { Upload, Download, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useOptimizedBooking } from '../../contexts/OptimizedBookingContext';
 
@@ -15,6 +15,7 @@ export const BulkImportExport: React.FC = () => {
   const { session, refreshUsers } = useAuth();
   const { refreshData } = useOptimizedBooking();
   const token = session?.access_token;
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleImport = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -75,7 +76,35 @@ export const BulkImportExport: React.FC = () => {
             </div>
             <div>
               <Label>Excel / CSV File</Label>
-              <input type="file" accept=".xlsx,.xls,.csv" onChange={e => setFile(e.target.files?.[0] || null)} className="block w-full text-sm" />
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full justify-start overflow-hidden"
+                >
+                  <Upload className="h-4 w-4 mr-2 shrink-0" />
+                  <span className="truncate">{file ? file.name : 'Choose File'}</span>
+                </Button>
+                {file && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => { setFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}
+                    aria-label="Clear selected file"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  className="hidden"
+                  onChange={e => setFile(e.target.files?.[0] || null)}
+                />
+              </div>
             </div>
             <Button type="submit" disabled={loading || !file}><Upload className="h-4 w-4 mr-2" /> Import</Button>
           </form>
