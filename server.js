@@ -1739,9 +1739,23 @@ async function deleteSequenceFileLocal(key) {
 
 app.get('/api/admin/s3-settings', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const settings = await getS3Settings();
-    const { secretAccessKey, accessKeyId, ...data } = settings;
-    res.json({ data: { ...data, accessKeyId: '', secretAccessKey: '' }, error: null });
+    const { rows } = await pool.query(
+      `SELECT s3_provider, s3_endpoint, s3_region, s3_bucket, s3_access_key_id, s3_secret_access_key, s3_force_path_style, s3_path_prefix, s3_uploads_enabled FROM app_settings LIMIT 1`
+    );
+    const r = rows[0] || {};
+    const data = {
+      provider: r.s3_provider || 'local',
+      endpoint: r.s3_endpoint || '',
+      region: r.s3_region || 'us-east-1',
+      bucket: r.s3_bucket || '',
+      accessKeyId: r.s3_access_key_id || '',
+      hasSecret: !!r.s3_secret_access_key,
+      secretAccessKey: '',
+      forcePathStyle: !!r.s3_force_path_style,
+      pathPrefix: r.s3_path_prefix || '',
+      uploadsEnabled: !!r.s3_uploads_enabled,
+    };
+    res.json({ data, error: null });
   } catch (err) {
     res.status(500).json({ data: null, error: { message: err.message } });
   }

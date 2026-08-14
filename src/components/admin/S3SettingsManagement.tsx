@@ -21,6 +21,7 @@ const DEFAULT_S3_SETTINGS = {
   forcePathStyle: false,
   pathPrefix: "lcms-sequences/",
   uploadsEnabled: false,
+  hasSecret: false,
 };
 
 const S3SettingsManagement: React.FC = () => {
@@ -50,10 +51,11 @@ const S3SettingsManagement: React.FC = () => {
           region: json.data.region || "us-east-1",
           bucket: json.data.bucket || "",
           accessKeyId: json.data.accessKeyId || "",
-          secretAccessKey: json.data.secretAccessKey || "",
+          secretAccessKey: "",
           forcePathStyle: !!json.data.forcePathStyle,
           pathPrefix: json.data.pathPrefix || "lcms-sequences/",
           uploadsEnabled: !!json.data.uploadsEnabled,
+          hasSecret: !!json.data.hasSecret,
         });
       }
     } catch (e) {
@@ -91,13 +93,17 @@ const S3SettingsManagement: React.FC = () => {
           s3_secret_access_key: settings.secretAccessKey || null,
           s3_force_path_style: settings.forcePathStyle,
           s3_uploads_enabled: settings.uploadsEnabled,
-          s3_path_prefix: normalizedPrefix(settings.pathPrefix),
+          s3_path_prefix: settings.pathPrefix || null,
         }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || json.error) throw new Error(json.error?.message || "Save failed");
       toast.success("S3 settings saved");
-      await loadSettings();
+      setSettings((s) => ({
+        ...s,
+        hasSecret: s.secretAccessKey ? true : s.hasSecret,
+        pathPrefix: json.data?.s3_path_prefix || s.pathPrefix || "lcms-sequences/",
+      }));
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to save";
       toast.error(msg);
@@ -127,7 +133,7 @@ const S3SettingsManagement: React.FC = () => {
             accessKeyId: settings.accessKeyId,
             secretAccessKey: settings.secretAccessKey,
             forcePathStyle: settings.forcePathStyle,
-            pathPrefix: normalizedPrefix(settings.pathPrefix),
+            pathPrefix: settings.pathPrefix ? normalizedPrefix(settings.pathPrefix) : "",
           },
         }),
       });
@@ -232,6 +238,7 @@ const S3SettingsManagement: React.FC = () => {
                     value={settings.accessKeyId}
                     onChange={(e) => setSettings((s) => ({ ...s, accessKeyId: e.target.value }))}
                     placeholder="AKIA..."
+                    autoComplete="off"
                   />
                 </div>
                 <div>
@@ -241,8 +248,14 @@ const S3SettingsManagement: React.FC = () => {
                     type="password"
                     value={settings.secretAccessKey}
                     onChange={(e) => setSettings((s) => ({ ...s, secretAccessKey: e.target.value }))}
-                    placeholder="••••••••"
+                    placeholder={settings.hasSecret ? "•••••••• (saved)" : "••••••••"}
+                    autoComplete="new-password"
                   />
+                  {settings.hasSecret && !settings.secretAccessKey && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Leave blank to keep the saved secret; enter a new value to overwrite it.
+                    </p>
+                  )}
                 </div>
               </div>
 
