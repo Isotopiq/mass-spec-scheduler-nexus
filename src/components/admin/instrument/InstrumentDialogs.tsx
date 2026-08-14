@@ -1,10 +1,10 @@
 
-import React from "react";
+import React, { useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { format } from "date-fns";
-import { CalendarIcon } from "lucide-react";
+import { CalendarIcon, Upload, Image as ImageIcon, X, Loader2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../../ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "../../ui/form";
 import { Input } from "../../ui/input";
@@ -16,6 +16,9 @@ import { Button } from "../../ui/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "../../ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { Instrument } from "../../../types";
+import { supabase } from "../../../integrations/supabase/client";
+import { ImageCropDialog } from "@/components/ui/ImageCropDialog";
+import { toast } from "sonner";
 
 const formSchema = z.object({
   name: z.string().min(2, { message: "Name must be at least 2 characters" }),
@@ -24,6 +27,7 @@ const formSchema = z.object({
   location: z.string().min(2, { message: "Location is required" }),
   status: z.enum(["available", "maintenance", "in_use", "offline"]),
   description: z.string().optional(),
+  image: z.string().optional(),
   calibrationDue: z.date().optional(),
 });
 
@@ -63,6 +67,7 @@ const InstrumentDialogs: React.FC<InstrumentDialogsProps> = ({
       location: "",
       status: "available",
       description: "",
+      image: "",
     }
   });
 
@@ -75,6 +80,7 @@ const InstrumentDialogs: React.FC<InstrumentDialogsProps> = ({
       location: selectedInstrument?.location || "",
       status: selectedInstrument?.status as any || "available",
       description: selectedInstrument?.description || "",
+      image: selectedInstrument?.image || "",
       calibrationDue: selectedInstrument?.calibrationDue ? new Date(selectedInstrument.calibrationDue) : undefined,
     }
   });
@@ -88,10 +94,121 @@ const InstrumentDialogs: React.FC<InstrumentDialogsProps> = ({
         location: selectedInstrument.location,
         status: selectedInstrument.status as any,
         description: selectedInstrument.description || "",
+        image: selectedInstrument.image || "",
         calibrationDue: selectedInstrument.calibrationDue ? new Date(selectedInstrument.calibrationDue) : undefined,
       });
     }
   }, [selectedInstrument, editForm]);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [cropOpen, setCropOpen] = useState(false);
+  const [cropSrc, setCropSrc] = useState<string | null>(null);
+  const [cropMime, setCropMime] = useState<string>("");
+  const [uploadingImage, setUploadingImage] = useState(false);
+
+  const handleFileSelect = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please upload an image file");
+      e.target.value = "";
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setCropSrc(event.target?.result as string);
+      setCropMime(file.type);
+      setCropOpen(true);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  const handleCroppedImage = async (file: File) => {
+    setCropOpen(false);
+    setUploadingImage(true);
+    try {
+      const fileExt = file.name.split(".").pop() || "jpg";
+      const fileName = `instrument-${Date.now()}.${fileExt}`;
+      const { data: uploadData, error: uploadError } = await supabase
+        .storage
+        .from("instrument-images")
+        .upload(fileName, file, { upsert: true });
+
+      if (uploadError) throw new Error(uploadError.message || "Upload failed");
+
+      const { data: publicUrlData } = supabase
+        .storage
+        .from("instrument-images")
+        .getPublicUrl(fileName);
+
+      const publicUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
+      const targetForm = isAddDialogOpen ? form : isEditDialogOpen ? editForm : null;
+      targetForm?.setValue("image", publicUrl, { shouldDirty: true });
+    } catch (err) {
+      console.error("Instrument image upload error:", err);
+      toast.error(err instanceof Error ? err.message : "Failed to upload instrument image");
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  const renderImageField = (formInstance: any) => (
+    <FormField
+      control={formInstance.control}
+      name="image"
+      render={({ field }) => (
+        <FormItem>
+          <FormLabel>Instrument Image</FormLabel>
+          <FormControl>
+            <div className="space-y-3">
+              {field.value ? (
+                <div className="relative w-fit">
+                  <img
+                    src={field.value}
+                    alt="Instrument preview"
+                    className="h-32 w-auto rounded-md border object-cover"
+                  />
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="icon"
+                    className="absolute -top-2 -right-2 h-6 w-6 rounded-full"
+                    onClick={() => field.onChange("")}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              ) : (
+                <div className="h-32 w-full rounded-md border border-dashed bg-muted flex items-center justify-center">
+                  <ImageIcon className="h-8 w-8 text-muted-foreground" />
+                </div>
+              )}
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleFileSelect}
+                disabled={uploadingImage}
+                className="w-full"
+              >
+                {uploadingImage ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Upload className="mr-2 h-4 w-4" />
+                )}
+                {field.value ? "Replace Image" : "Upload Image"}
+              </Button>
+            </div>
+          </FormControl>
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+  );
 
   const renderFormFields = (formInstance: any) => (
     <>
@@ -188,6 +305,8 @@ const InstrumentDialogs: React.FC<InstrumentDialogsProps> = ({
           </FormItem>
         )}
       />
+
+      {renderImageField(formInstance)}
       
       <FormField
         control={formInstance.control}
@@ -234,7 +353,7 @@ const InstrumentDialogs: React.FC<InstrumentDialogsProps> = ({
     <>
       {/* Add Instrument Dialog */}
       <Dialog open={isAddDialogOpen} onOpenChange={onAddDialogClose}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Add New Instrument</DialogTitle>
           </DialogHeader>
@@ -256,7 +375,7 @@ const InstrumentDialogs: React.FC<InstrumentDialogsProps> = ({
       
       {/* Edit Instrument Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={onEditDialogClose}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Instrument</DialogTitle>
           </DialogHeader>
@@ -293,6 +412,25 @@ const InstrumentDialogs: React.FC<InstrumentDialogsProps> = ({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+
+      <ImageCropDialog
+        open={cropOpen}
+        onOpenChange={setCropOpen}
+        imageSrc={cropSrc}
+        title="Crop instrument image"
+        aspect={16 / 9}
+        cropShape="rect"
+        mimeType={cropMime || undefined}
+        onCropped={handleCroppedImage}
+      />
     </>
   );
 };

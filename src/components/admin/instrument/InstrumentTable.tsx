@@ -48,6 +48,7 @@ const InstrumentTable: React.FC<InstrumentTableProps> = ({
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead>Image</TableHead>
               <TableHead>Name</TableHead>
               <TableHead>Type</TableHead>
               <TableHead>Model</TableHead>
@@ -60,6 +61,19 @@ const InstrumentTable: React.FC<InstrumentTableProps> = ({
           <TableBody>
             {instruments.map(instrument => (
               <TableRow key={instrument.id}>
+                <TableCell>
+                  {instrument.image ? (
+                    <img
+                      src={instrument.image}
+                      alt={instrument.name}
+                      className="h-10 w-10 rounded object-cover border"
+                    />
+                  ) : (
+                    <div className="h-10 w-10 rounded bg-muted flex items-center justify-center text-xs text-muted-foreground">
+                      N/A
+                    </div>
+                  )}
+                </TableCell>
                 <TableCell className="font-medium">{instrument.name}</TableCell>
                 <TableCell>{instrument.type || "-"}</TableCell>
                 <TableCell>{instrument.model || "-"}</TableCell>

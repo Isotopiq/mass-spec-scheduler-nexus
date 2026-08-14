@@ -25,7 +25,7 @@ const InstrumentManagementContainer: React.FC = () => {
         status: data.status,
         description: data.description || "",
         specifications: "",
-        image: "",
+        image: data.image || "",
         calibrationDue: data.calibrationDue ? data.calibrationDue.toISOString().split('T')[0] : undefined,
       });
       
@@ -50,6 +50,7 @@ const InstrumentManagementContainer: React.FC = () => {
         location: data.location,
         status: data.status,
         description: data.description || "",
+        image: data.image || "",
         calibrationDue: data.calibrationDue ? data.calibrationDue.toISOString().split('T')[0] : undefined,
       };
 
