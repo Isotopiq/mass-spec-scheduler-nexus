@@ -9,8 +9,8 @@ import { Loader2, Upload, Image as ImageIcon } from "lucide-react";
 import { ImageCropDialog } from "@/components/ui/ImageCropDialog";
 import { SiteLogo } from "@/components/SiteLogo";
 
-const DEFAULT_LOGO = "/lovable-uploads/40965317-613a-41b7-bc11-d9e8b6cba9ae.png";
-const DEFAULT_FAVICON = "/lovable-uploads/c9351e76-a090-4113-bffa-7ee6800178c0.png";
+const DEFAULT_LOGO = "/site-assets/40965317-613a-41b7-bc11-d9e8b6cba9ae.png";
+const DEFAULT_FAVICON = "/site-assets/c9351e76-a090-4113-bffa-7ee6800178c0.png";
 
 const SiteAssetsSettings: React.FC = () => {
   const { settings, isLoading, reload } = useAppSettings();

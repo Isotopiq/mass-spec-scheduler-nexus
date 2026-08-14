@@ -23,7 +23,7 @@ import LoginPage from "./pages/LoginPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import NotFound from "./pages/NotFound";
 
-const DEFAULT_FAVICON = "/lovable-uploads/c9351e76-a090-4113-bffa-7ee6800178c0.png";
+const DEFAULT_FAVICON = "/site-assets/c9351e76-a090-4113-bffa-7ee6800178c0.png";
 
 const queryClient = new QueryClient({
   defaultOptions: {

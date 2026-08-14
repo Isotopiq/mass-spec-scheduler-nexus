@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const DEFAULT_LOGO = "/lovable-uploads/40965317-613a-41b7-bc11-d9e8b6cba9ae.png";
+const DEFAULT_LOGO = "/site-assets/40965317-613a-41b7-bc11-d9e8b6cba9ae.png";
 
 interface SiteLogoProps {
   src?: string | null;

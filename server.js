@@ -30,7 +30,7 @@ if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 const pool = new Pool({ connectionString: DATABASE_URL });
 
 const ALLOWED_TABLES = {
-  app_settings: { select: 'all', insert: 'admin', update: 'admin', delete: 'admin', restrictedColumns: [] },
+  app_settings: { select: 'all', insert: 'admin', update: 'admin', delete: 'admin', restrictedColumns: ['s3_endpoint', 's3_region', 's3_bucket', 's3_access_key_id', 's3_secret_access_key', 's3_force_path_style'] },
   booking_templates: { select: 'owner-or-admin', insert: 'authenticated', update: 'owner-or-admin', delete: 'owner-or-admin', restrictedColumns: [] },
   bookings: { select: 'all', insert: 'authenticated', update: 'owner-or-admin', delete: 'owner-or-admin', restrictedColumns: [] },
   booking_swaps: { select: 'admin', insert: 'authenticated', update: 'admin', delete: 'admin', restrictedColumns: [] },
@@ -692,7 +692,7 @@ function smtpTransport(settings) {
 async function getLogoAndSiteUrl() {
   const settings = await getSettings();
   const siteUrl = process.env.SITE_URL || `http://localhost:${PORT || 3000}`;
-  const defaultLogo = `${siteUrl.replace(/\/$/, '')}/lovable-uploads/40965317-613a-41b7-bc11-d9e8b6cba9ae.png`;
+  const defaultLogo = `${siteUrl.replace(/\/$/, '')}/site-assets/40965317-613a-41b7-bc11-d9e8b6cba9ae.png`;
   let logoUrl = settings?.logo_url || settings?.favicon_url || defaultLogo;
   if (logoUrl && logoUrl.startsWith('/') && !logoUrl.startsWith('//')) {
     logoUrl = `${siteUrl.replace(/\/$/, '')}${logoUrl}`;
@@ -950,22 +950,57 @@ async function sendEmailWithTemplate({ to, subject, htmlContent, templateType, v
   }
 }
 
-function getS3Client() {
-  if (S3_PROVIDER !== 's3') return null;
-  return new S3Client({
+async function getS3Settings() {
+  const env = {
+    provider: (process.env.S3_PROVIDER || 'local').toLowerCase(),
     endpoint: process.env.S3_ENDPOINT,
     region: process.env.S3_REGION || 'us-east-1',
-    credentials: { accessKeyId: process.env.S3_ACCESS_KEY_ID, secretAccessKey: process.env.S3_SECRET_ACCESS_KEY },
-    forcePathStyle: process.env.S3_FORCE_PATH_STYLE === 'true'
+    bucket: process.env.S3_BUCKET || 'mass-spec-sequences',
+    accessKeyId: process.env.S3_ACCESS_KEY_ID,
+    secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
+    forcePathStyle: process.env.S3_FORCE_PATH_STYLE === 'true',
+    pathPrefix: process.env.S3_PATH_PREFIX || 'lcms-sequences/',
+    uploadsEnabled: false
+  };
+  try {
+    const { rows } = await pool.query('SELECT s3_provider, s3_endpoint, s3_region, s3_bucket, s3_access_key_id, s3_secret_access_key, s3_force_path_style, s3_path_prefix, s3_uploads_enabled FROM app_settings LIMIT 1');
+    if (rows[0]) {
+      const r = rows[0];
+      return {
+        provider: (r.s3_provider || env.provider).toLowerCase(),
+        endpoint: r.s3_endpoint || env.endpoint,
+        region: r.s3_region || env.region,
+        bucket: r.s3_bucket || env.bucket,
+        accessKeyId: r.s3_access_key_id || env.accessKeyId,
+        secretAccessKey: r.s3_secret_access_key || env.secretAccessKey,
+        forcePathStyle: r.s3_force_path_style !== null ? r.s3_force_path_style : env.forcePathStyle,
+        pathPrefix: r.s3_path_prefix || env.pathPrefix,
+        uploadsEnabled: r.s3_uploads_enabled !== null ? r.s3_uploads_enabled : env.uploadsEnabled
+      };
+    }
+  } catch (e) { console.error('getS3Settings error:', e); }
+  return env;
+}
+
+async function getS3Client() {
+  const settings = await getS3Settings();
+  if (settings.provider !== 's3' || !settings.endpoint || !settings.accessKeyId || !settings.secretAccessKey) return null;
+  return new S3Client({
+    endpoint: settings.endpoint,
+    region: settings.region,
+    credentials: { accessKeyId: settings.accessKeyId, secretAccessKey: settings.secretAccessKey },
+    forcePathStyle: settings.forcePathStyle
   });
 }
 
-function s3KeyPrefix() {
-  return (process.env.S3_PATH_PREFIX || 'lcms-sequences/').replace(/\/$/, '') + '/';
+async function s3KeyPrefix() {
+  const settings = await getS3Settings();
+  return (settings.pathPrefix || 'lcms-sequences/').replace(/\/$/, '') + '/';
 }
 
-function s3Bucket() {
-  return process.env.S3_BUCKET || 'mass-spec-sequences';
+async function s3Bucket() {
+  const settings = await getS3Settings();
+  return settings.bucket || 'mass-spec-sequences';
 }
 
 function localSequencePath(bookingId, filename) {
@@ -1149,7 +1184,9 @@ app.get('/api/app-settings', async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM app_settings LIMIT 1');
     if (rows.length === 0) return res.json({ data: null, error: { message: 'Settings not found' } });
-    res.json({ data: rows[0], error: null });
+    const restricted = new Set(ALLOWED_TABLES.app_settings.restrictedColumns);
+    const data = Object.fromEntries(Object.entries(rows[0]).filter(([k]) => !restricted.has(k)));
+    res.json({ data, error: null });
   } catch (err) {
     res.status(500).json({ data: null, error: { message: err.message } });
   }
@@ -1636,13 +1673,32 @@ app.post('/api/functions/apply-email-template-style', requireAuth, requireAdmin,
 
 app.post('/api/functions/s3-test-connection', requireAuth, async (req, res) => {
   try {
-    if (S3_PROVIDER === 'local') {
-      return res.json({ ok: true, endpoint: 'local', bucket: 'uploads', region: 'local', forcePathStyle: true });
+    const saved = await getS3Settings();
+    const override = req.body?.settings || {};
+    const settings = {
+      provider: (override.provider || saved.provider).toLowerCase(),
+      endpoint: override.endpoint || saved.endpoint,
+      region: override.region || saved.region,
+      bucket: override.bucket || saved.bucket,
+      accessKeyId: override.accessKeyId || saved.accessKeyId,
+      secretAccessKey: override.secretAccessKey || saved.secretAccessKey,
+      forcePathStyle: typeof override.forcePathStyle === 'boolean' ? override.forcePathStyle : saved.forcePathStyle,
+      pathPrefix: override.pathPrefix || saved.pathPrefix
+    };
+    if (settings.provider === 'local') {
+      return res.json({ ok: true, endpoint: 'local', bucket: settings.bucket || 'uploads', region: 'local', forcePathStyle: true });
     }
-    const s3 = getS3Client();
-    if (!s3 || !process.env.S3_BUCKET) throw new Error('S3 not configured');
-    await s3.send(new HeadBucketCommand({ Bucket: s3Bucket() }));
-    res.json({ ok: true, endpoint: process.env.S3_ENDPOINT, bucket: s3Bucket(), region: process.env.S3_REGION || 'us-east-1', forcePathStyle: process.env.S3_FORCE_PATH_STYLE === 'true' });
+    if (!settings.endpoint || !settings.accessKeyId || !settings.secretAccessKey || !settings.bucket) {
+      throw new Error('S3 not configured');
+    }
+    const s3 = new S3Client({
+      endpoint: settings.endpoint,
+      region: settings.region,
+      credentials: { accessKeyId: settings.accessKeyId, secretAccessKey: settings.secretAccessKey },
+      forcePathStyle: settings.forcePathStyle
+    });
+    await s3.send(new HeadBucketCommand({ Bucket: settings.bucket }));
+    res.json({ ok: true, endpoint: settings.endpoint, bucket: settings.bucket, region: settings.region, forcePathStyle: settings.forcePathStyle });
   } catch (err) {
     res.json({ ok: false, error: err.message, status: 500 });
   }
@@ -1681,18 +1737,82 @@ async function deleteSequenceFileLocal(key) {
   if (fs.existsSync(target)) fs.unlinkSync(target);
 }
 
+app.get('/api/admin/s3-settings', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const settings = await getS3Settings();
+    const { secretAccessKey, accessKeyId, ...data } = settings;
+    res.json({ data: { ...data, accessKeyId: '', secretAccessKey: '' }, error: null });
+  } catch (err) {
+    res.status(500).json({ data: null, error: { message: err.message } });
+  }
+});
+
+app.post('/api/admin/s3-settings', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const {
+      s3_provider,
+      s3_endpoint,
+      s3_region,
+      s3_bucket,
+      s3_access_key_id,
+      s3_secret_access_key,
+      s3_force_path_style,
+      s3_uploads_enabled,
+      s3_path_prefix
+    } = req.body;
+    const prefix = typeof s3_path_prefix === 'string' && s3_path_prefix.length > 0 ? s3_path_prefix : 'lcms-sequences/';
+    const normalizedPrefix = prefix.endsWith('/') ? prefix : prefix + '/';
+    const { rows } = await pool.query(
+      `UPDATE app_settings SET
+        s3_provider = $1,
+        s3_endpoint = $2,
+        s3_region = $3,
+        s3_bucket = $4,
+        s3_access_key_id = COALESCE(NULLIF($5, ''), s3_access_key_id),
+        s3_secret_access_key = COALESCE(NULLIF($6, ''), s3_secret_access_key),
+        s3_force_path_style = $7,
+        s3_uploads_enabled = $8,
+        s3_path_prefix = $9,
+        s3_endpoint_display = $10,
+        s3_bucket_display = $11,
+        updated_at = now()
+      RETURNING *`,
+      [
+        s3_provider || 'local',
+        s3_endpoint || null,
+        s3_region || null,
+        s3_bucket || null,
+        s3_access_key_id || '',
+        s3_secret_access_key || '',
+        s3_force_path_style === true || s3_force_path_style === 'true',
+        s3_uploads_enabled === true || s3_uploads_enabled === 'true',
+        normalizedPrefix,
+        s3_endpoint || null,
+        s3_bucket || null
+      ]
+    );
+    const { s3_secret_access_key: _secret, s3_access_key_id: _key, ...data } = rows[0];
+    res.json({ data: { ...data, s3_access_key_id: '', s3_secret_access_key: '' }, error: null });
+  } catch (err) {
+    res.status(400).json({ data: null, error: { message: err.message } });
+  }
+});
+
 app.post('/api/functions/s3-upload-sequence', requireAuth, upload.single('file'), async (req, res) => {
   try {
     const { bookingId } = req.body;
     if (!req.file) throw new Error('No file uploaded');
-    if (S3_PROVIDER === 'local') {
+    const settings = await getS3Settings();
+    if (settings.provider === 'local') {
       const { key, name, size } = await saveSequenceFileLocal(bookingId, req.file);
       await updateBookingSequenceFile(bookingId, key, name, size);
       return res.json({ key, name, size, uploadedAt: new Date().toISOString() });
     }
-    const s3 = getS3Client();
-    const key = s3KeyPrefix() + `${bookingId}/${req.file.originalname}`;
-    await s3.send(new PutObjectCommand({ Bucket: s3Bucket(), Key: key, Body: req.file.buffer, ContentType: req.file.mimetype }));
+    const s3 = await getS3Client();
+    if (!s3) throw new Error('S3 not configured');
+    const prefix = (settings.pathPrefix || 'lcms-sequences/').replace(/\/$/, '') + '/';
+    const key = prefix + `${bookingId}/${req.file.originalname}`;
+    await s3.send(new PutObjectCommand({ Bucket: settings.bucket, Key: key, Body: req.file.buffer, ContentType: req.file.mimetype }));
     await updateBookingSequenceFile(bookingId, key, req.file.originalname, req.file.size);
     res.json({ key, name: req.file.originalname, size: req.file.size, uploadedAt: new Date().toISOString() });
   } catch (err) {
@@ -1705,13 +1825,15 @@ app.get('/api/functions/s3-download-sequence', requireAuth, async (req, res) => 
     const { bookingId } = req.query;
     const info = await getBookingSequenceFile(bookingId);
     if (!info || !info.sequence_file_key) throw new Error('No sequence file for this booking');
-    if (S3_PROVIDER === 'local') {
+    const settings = await getS3Settings();
+    if (settings.provider === 'local') {
       const target = path.join(UPLOAD_DIR, info.sequence_file_key);
       if (!fs.existsSync(target)) throw new Error('File not found');
       return res.sendFile(path.resolve(target));
     }
-    const s3 = getS3Client();
-    const obj = await s3.send(new GetObjectCommand({ Bucket: s3Bucket(), Key: info.sequence_file_key }));
+    const s3 = await getS3Client();
+    if (!s3) throw new Error('S3 not configured');
+    const obj = await s3.send(new GetObjectCommand({ Bucket: settings.bucket, Key: info.sequence_file_key }));
     res.setHeader('Content-Disposition', `attachment; filename="${info.sequence_file_name || 'sequence-file'}"`);
     obj.Body.pipe(res);
   } catch (err) {
@@ -1723,11 +1845,13 @@ app.post('/api/functions/s3-delete-sequence', requireAuth, async (req, res) => {
   try {
     const { bookingId } = req.body;
     const info = await getBookingSequenceFile(bookingId);
+    const settings = await getS3Settings();
     if (info && info.sequence_file_key) {
-      if (S3_PROVIDER === 'local') await deleteSequenceFileLocal(info.sequence_file_key);
+      if (settings.provider === 'local') await deleteSequenceFileLocal(info.sequence_file_key);
       else {
-        const s3 = getS3Client();
-        await s3.send(new DeleteObjectCommand({ Bucket: s3Bucket(), Key: info.sequence_file_key }));
+        const s3 = await getS3Client();
+        if (!s3) throw new Error('S3 not configured');
+        await s3.send(new DeleteObjectCommand({ Bucket: settings.bucket, Key: info.sequence_file_key }));
       }
     }
     await clearBookingSequenceFile(bookingId);
@@ -1741,22 +1865,26 @@ app.post('/api/functions/s3-replace-sequence', requireAuth, upload.single('file'
   try {
     const { bookingId } = req.body;
     if (!req.file) throw new Error('No file uploaded');
+    const settings = await getS3Settings();
     const old = await getBookingSequenceFile(bookingId);
     if (old && old.sequence_file_key) {
-      if (S3_PROVIDER === 'local') await deleteSequenceFileLocal(old.sequence_file_key);
+      if (settings.provider === 'local') await deleteSequenceFileLocal(old.sequence_file_key);
       else {
-        const s3 = getS3Client();
-        await s3.send(new DeleteObjectCommand({ Bucket: s3Bucket(), Key: old.sequence_file_key }));
+        const s3 = await getS3Client();
+        if (!s3) throw new Error('S3 not configured');
+        await s3.send(new DeleteObjectCommand({ Bucket: settings.bucket, Key: old.sequence_file_key }));
       }
     }
-    if (S3_PROVIDER === 'local') {
+    if (settings.provider === 'local') {
       const { key, name, size } = await saveSequenceFileLocal(bookingId, req.file);
       await updateBookingSequenceFile(bookingId, key, name, size);
       return res.json({ key, name, size, uploadedAt: new Date().toISOString() });
     }
-    const s3 = getS3Client();
-    const key = s3KeyPrefix() + `${bookingId}/${req.file.originalname}`;
-    await s3.send(new PutObjectCommand({ Bucket: s3Bucket(), Key: key, Body: req.file.buffer, ContentType: req.file.mimetype }));
+    const s3 = await getS3Client();
+    if (!s3) throw new Error('S3 not configured');
+    const prefix = (settings.pathPrefix || 'lcms-sequences/').replace(/\/$/, '') + '/';
+    const key = prefix + `${bookingId}/${req.file.originalname}`;
+    await s3.send(new PutObjectCommand({ Bucket: settings.bucket, Key: key, Body: req.file.buffer, ContentType: req.file.mimetype }));
     await updateBookingSequenceFile(bookingId, key, req.file.originalname, req.file.size);
     res.json({ key, name: req.file.originalname, size: req.file.size, uploadedAt: new Date().toISOString() });
   } catch (err) {

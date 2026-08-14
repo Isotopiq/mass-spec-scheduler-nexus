@@ -390,7 +390,7 @@ const EmailTemplatesManagement: React.FC = () => {
     // Use current form data (not saved template) for testing
     let testSubject = formData.subject;
 
-    const logoUrl = settings?.logo_url || settings?.favicon_url || `${window.location.origin}/lovable-uploads/40965317-613a-41b7-bc11-d9e8b6cba9ae.png`;
+    const logoUrl = settings?.logo_url || settings?.favicon_url || `${window.location.origin}/site-assets/40965317-613a-41b7-bc11-d9e8b6cba9ae.png`;
     const siteUrl = window.location.origin;
     const sampleData: Record<string, string> = {
       "{{userName}}": "John Doe",
@@ -502,7 +502,7 @@ const EmailTemplatesManagement: React.FC = () => {
     const rawLogoUrl =
       settings?.logo_url ||
       settings?.favicon_url ||
-      `${rawSiteUrl}/lovable-uploads/40965317-613a-41b7-bc11-d9e8b6cba9ae.png`;
+      `${rawSiteUrl}/site-assets/40965317-613a-41b7-bc11-d9e8b6cba9ae.png`;
     const logoUrl =
       rawLogoUrl.startsWith('/') && !rawLogoUrl.startsWith('//')
         ? `${rawSiteUrl}${rawLogoUrl}`

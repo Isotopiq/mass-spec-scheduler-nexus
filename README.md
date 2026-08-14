@@ -1,11 +1,11 @@
 
 # Lab Management System
 
-A comprehensive web application for managing laboratory instruments, bookings, and user access built with React, TypeScript, and Supabase.
+A comprehensive web application for managing laboratory instruments, bookings, and user access built with React, TypeScript, Vite, Tailwind CSS, and a standalone Postgres backend.
 
 ## Project info
 
-**URL**: https://lovable.dev/projects/5b88bf9c-720a-47f3-be3e-b58eeb53c15f
+**Repository**: https://github.com/Isotopiq/mass-spec-scheduler-nexus
 
 ## Features
 
@@ -22,7 +22,7 @@ This project is built with:
 
 - **Frontend**: React 18, TypeScript, Vite
 - **UI Components**: shadcn/ui, Tailwind CSS
-- **Backend**: Supabase (Database, Auth, Edge Functions)
+- **Backend**: Node/Express, Postgres (pg), JWT auth
 - **Email**: SMTP integration with customizable templates
 - **Charts**: Recharts
 - **Icons**: Lucide React
@@ -32,7 +32,7 @@ This project is built with:
 ### Prerequisites
 
 - Node.js 18+ and npm
-- A Supabase account and project
+- A Postgres database (local or hosted)
 
 ### Local Development
 
@@ -47,10 +47,10 @@ This project is built with:
    npm install
    ```
 
-3. **Set up Supabase**
-   - Create a new Supabase project at https://supabase.com
-   - Run the SQL migrations from the `supabase/migrations` folder
-   - Configure your environment variables (see Environment Variables section)
+3. **Set up Postgres**
+   - Create a Postgres database
+   - Set `DATABASE_URL` and `JWT_SECRET` in `.env`
+   - Run the SQL migrations from the `migrations/` folder on startup
 
 4. **Start the development server**
    ```bash
@@ -63,23 +63,25 @@ This project is built with:
 
 ## Environment Variables
 
-The application requires the following environment variables for Supabase integration:
+The application requires the following environment variables for the standalone backend:
 
-- `VITE_SUPABASE_URL`: Your Supabase project URL
-- `VITE_SUPABASE_ANON_KEY`: Your Supabase anonymous key
+- `DATABASE_URL`: Postgres connection string
+- `JWT_SECRET`: A long random secret for signing session tokens
+- `PORT`: The port the Express server listens on (default 3000)
 
-These should be configured in your deployment environment or Supabase Edge Functions secrets.
+Optional S3 variables are documented in `.env.example`.
 
 ## Deployment Options
 
-### 1. Lovable Platform (Recommended for Development)
+### 1. EasyPanel / Docker Compose (Recommended)
 
-The easiest way to deploy is through the Lovable platform:
+Use the included production compose file to deploy on EasyPanel or any Docker host:
 
-1. Open your [Lovable Project](https://lovable.dev/projects/5b88bf9c-720a-47f3-be3e-b58eeb53c15f)
-2. Click **Share → Publish**
-3. Your app will be deployed automatically with a `.lovable.app` domain
-4. Optionally connect a custom domain in Project Settings → Domains
+```bash
+docker compose -f docker-compose.prod.yml up -d
+```
+
+Set `DATABASE_URL`, `JWT_SECRET`, and any S3/SMTP variables in the platform environment panel.
 
 ### 2. Traditional Web Hosting
 
@@ -403,15 +405,15 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 For support and questions:
 
-- Check the [Lovable Documentation](https://docs.lovable.dev/)
-- Join the [Lovable Discord Community](https://discord.com/channels/1119885301872070706/1280461670979993613)
+- Check the [Devin Documentation](https://docs.devin.ai/)
+- Create an issue in this repository
 - Create an issue in this repository
 
 ## Editing this Project
 
-### Using Lovable (Recommended)
+### Using a Local IDE
 
-Visit the [Lovable Project](https://lovable.dev/projects/5b88bf9c-720a-47f3-be3e-b58eeb53c15f) and start prompting to make changes. All changes will be automatically synced to this repository.
+Clone the repository, run `npm install`, set your `.env` variables, and use `docker compose up` for local development. Commit changes and open a pull request as usual.
 
 ### Using Local IDE
 
@@ -426,7 +428,7 @@ npm install
 # Start development
 npm run dev
 
-# Push changes back to sync with Lovable
+# Push changes to your repository
 git add .
 git commit -m "Your changes"
 git push
@@ -436,9 +438,8 @@ git push
 
 To connect a custom domain:
 
-1. Navigate to **Project > Settings > Domains** in Lovable
-2. Click **Connect Domain**
-3. Follow the DNS configuration instructions
-4. A paid Lovable plan is required for custom domains
+1. Open your platform domain settings (e.g. EasyPanel Domains)
+2. Point your domain to the deployed container
+3. Configure TLS/SSL in your platform dashboard
 
-For more information, see the [custom domain documentation](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide).
+For more information, see the deployment platform's custom-domain documentation.
