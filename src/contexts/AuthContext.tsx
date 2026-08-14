@@ -167,10 +167,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   useEffect(() => {
-    if (isAuthenticated && !isLoading && user?.role === 'admin') {
+    if (isAuthenticated && !isLoading) {
       fetchUsers();
     }
-  }, [isAuthenticated, isLoading, user]);
+  }, [isAuthenticated, isLoading]);
 
   const sendWelcomeEmail = async (email: string, name: string) => {
     try {
