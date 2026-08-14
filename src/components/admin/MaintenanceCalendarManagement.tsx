@@ -107,8 +107,8 @@ export const MaintenanceCalendarManagement: React.FC = () => {
       <Card>
         <CardHeader><CardTitle>Schedule Maintenance</CardTitle></CardHeader>
         <CardContent>
-          <form onSubmit={create} className="grid grid-cols-1 md:grid-cols-6 gap-4 items-end">
-            <div>
+          <form onSubmit={create} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-4 items-end">
+            <div className="md:col-span-1 lg:col-span-3">
               <Label>Instrument</Label>
               <Select value={form.instrument_id} onValueChange={v => setForm(f => ({ ...f, instrument_id: v }))}>
                 <SelectTrigger><SelectValue placeholder="Select instrument" /></SelectTrigger>
@@ -117,15 +117,15 @@ export const MaintenanceCalendarManagement: React.FC = () => {
                 </SelectContent>
               </Select>
             </div>
-            <div>
+            <div className="md:col-span-1 lg:col-span-3">
               <Label>Start</Label>
               <Input type="datetime-local" value={form.start} onChange={e => setForm(f => ({ ...f, start: e.target.value }))} required />
             </div>
-            <div>
+            <div className="md:col-span-1 lg:col-span-3">
               <Label>End</Label>
               <Input type="datetime-local" value={form.end} onChange={e => setForm(f => ({ ...f, end: e.target.value }))} required />
             </div>
-            <div>
+            <div className="md:col-span-1 lg:col-span-3">
               <Label>Type</Label>
               <Select value={form.type} onValueChange={v => setForm(f => ({ ...f, type: v }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
@@ -136,11 +136,11 @@ export const MaintenanceCalendarManagement: React.FC = () => {
                 </SelectContent>
               </Select>
             </div>
-            <div className="md:col-span-2">
+            <div className="md:col-span-2 lg:col-span-8">
               <Label>Description</Label>
               <Textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Optional details" />
             </div>
-            <div className="md:col-span-6">
+            <div className="md:col-span-2 lg:col-span-4">
               <Button type="submit" disabled={saving || !form.instrument_id || !form.start || !form.end}>
                 {saving ? 'Scheduling...' : 'Schedule'}
               </Button>
