@@ -24,6 +24,7 @@ import ResetPasswordPage from "./pages/ResetPasswordPage";
 import NotFound from "./pages/NotFound";
 
 const DEFAULT_FAVICON = "/site-assets/c9351e76-a090-4113-bffa-7ee6800178c0.png";
+const DEFAULT_SITE_TITLE = "TeSlaa Lab MS Scheduling Suite";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -49,6 +50,14 @@ function FaviconManager() {
   return null;
 }
 
+function DocumentTitleManager() {
+  const { settings } = useAppSettings();
+  useEffect(() => {
+    document.title = settings?.site_name || DEFAULT_SITE_TITLE;
+  }, [settings?.site_name]);
+  return null;
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -56,6 +65,7 @@ function App() {
         <TooltipProvider>
           <Toaster />
           <FaviconManager />
+          <DocumentTitleManager />
           <AuthProvider>
             <OptimizedBookingProvider>
               <Routes>

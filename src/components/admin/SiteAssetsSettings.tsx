@@ -1,7 +1,8 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { Label } from "../ui/label";
+import { Input } from "../ui/input";
 import { useAppSettings } from "../../hooks/useAppSettings";
 import { supabase } from "../../integrations/supabase/client";
 import { toast } from "sonner";
@@ -11,9 +12,11 @@ import { SiteLogo } from "@/components/SiteLogo";
 
 const DEFAULT_LOGO = "/site-assets/40965317-613a-41b7-bc11-d9e8b6cba9ae.png";
 const DEFAULT_FAVICON = "/site-assets/c9351e76-a090-4113-bffa-7ee6800178c0.png";
+const DEFAULT_SITE_TITLE = "TeSlaa Lab MS Scheduling Suite";
 
 const SiteAssetsSettings: React.FC = () => {
   const { settings, isLoading, reload } = useAppSettings();
+  const [siteName, setSiteName] = useState("");
   const [saving, setSaving] = useState<string | null>(null);
   const [cropOpen, setCropOpen] = useState(false);
   const [cropSrc, setCropSrc] = useState<string | null>(null);
@@ -21,6 +24,10 @@ const SiteAssetsSettings: React.FC = () => {
   const [cropKey, setCropKey] = useState<"logo_url" | "favicon_url" | null>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const faviconInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setSiteName(settings?.site_name || DEFAULT_SITE_TITLE);
+  }, [settings?.site_name]);
 
   const uploadAsset = async (file: File, key: "logo_url" | "favicon_url") => {
     if (!settings?.id) return;
@@ -86,6 +93,27 @@ const SiteAssetsSettings: React.FC = () => {
     await uploadAsset(file, cropKey);
   };
 
+  const saveSiteName = async () => {
+    if (!settings?.id) return;
+    setSaving("site_name");
+    try {
+      const value = siteName.trim() || DEFAULT_SITE_TITLE;
+      const { error } = await supabase
+        .from("app_settings")
+        .update({ site_name: value === DEFAULT_SITE_TITLE ? null : value, updated_at: new Date().toISOString() })
+        .eq("id", settings.id);
+      if (error) throw new Error(error.message || "Failed to save site name");
+      toast.success("Site name updated");
+      reload();
+      window.dispatchEvent(new CustomEvent('app-settings-updated'));
+    } catch (err) {
+      console.error("Site name save error:", err);
+      toast.error(err instanceof Error ? err.message : "Failed to save site name");
+    } finally {
+      setSaving(null);
+    }
+  };
+
   if (isLoading || !settings) {
     return (
       <Card className="p-6">
@@ -102,10 +130,32 @@ const SiteAssetsSettings: React.FC = () => {
       <CardHeader>
         <CardTitle>Site Assets</CardTitle>
         <CardDescription>
-          Upload a custom logo and favicon for the application.
+          Upload a custom logo and favicon, and set the browser tab title.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-8 max-w-md">
+        <div className="space-y-3">
+          <Label htmlFor="site-name">Site Name / Browser Tab Title</Label>
+          <Input
+            id="site-name"
+            value={siteName}
+            onChange={(e) => setSiteName(e.target.value)}
+            placeholder={DEFAULT_SITE_TITLE}
+            disabled={!!saving}
+          />
+          <Button
+            type="button"
+            onClick={saveSiteName}
+            disabled={!!saving}
+            className="w-full"
+          >
+            {saving === "site_name" ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : null}
+            Save Site Name
+          </Button>
+        </div>
+
         <div className="space-y-3">
           <Label>Logo</Label>
           <div className="border rounded-md p-4 flex items-center justify-center bg-muted">

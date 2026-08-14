@@ -14,6 +14,7 @@ export interface AppSettings {
   email_template_style: string;
   logo_url: string | null;
   favicon_url: string | null;
+  site_name: string | null;
   updated_at: string;
 }
 
