@@ -51,23 +51,23 @@ const AdminPage: React.FC = () => {
       )}
       
       <Tabs value={activeTab} onValueChange={handleTabChange}>
-        <TabsList className="flex flex-wrap gap-1 justify-start w-full max-w-7xl h-auto p-1">
-          <TabsTrigger value="pending-bookings" className="px-1.5 py-2 text-sm shrink-0" onClick={() => setActiveTab("pending-bookings")}>Pending</TabsTrigger>
-          <TabsTrigger value="booking-history" className="px-1.5 py-2 text-sm shrink-0" onClick={() => setActiveTab("booking-history")}>History</TabsTrigger>
-          <TabsTrigger value="users" className="px-1.5 py-2 text-sm shrink-0" onClick={() => setActiveTab("users")}>Users</TabsTrigger>
-          <TabsTrigger value="instruments" className="px-1.5 py-2 text-sm shrink-0" onClick={() => setActiveTab("instruments")}>Instruments</TabsTrigger>
-          <TabsTrigger value="delays" className="px-1.5 py-2 text-sm shrink-0" onClick={() => setActiveTab("delays")}>Delays</TabsTrigger>
-          <TabsTrigger value="status-colors" className="px-1.5 py-2 text-sm shrink-0" onClick={() => setActiveTab("status-colors")}>Colors</TabsTrigger>
-          <TabsTrigger value="smtp" className="px-1.5 py-2 text-sm shrink-0" onClick={() => setActiveTab("smtp")}>SMTP</TabsTrigger>
-          <TabsTrigger value="email-templates" className="px-1.5 py-2 text-sm shrink-0" onClick={() => setActiveTab("email-templates")}>Templates</TabsTrigger>
-          <TabsTrigger value="storage" className="px-1.5 py-2 text-sm shrink-0" onClick={() => setActiveTab("storage")}>Storage</TabsTrigger>
-          <TabsTrigger value="booking-settings" className="px-1.5 py-2 text-sm shrink-0" onClick={() => setActiveTab("booking-settings")}>Booking</TabsTrigger>
-          <TabsTrigger value="swap-requests" className="px-1.5 py-2 text-sm shrink-0" onClick={() => setActiveTab("swap-requests")}>Swaps</TabsTrigger>
-          <TabsTrigger value="waitlist" className="px-1.5 py-2 text-sm shrink-0" onClick={() => setActiveTab("waitlist")}>Waitlist</TabsTrigger>
-          <TabsTrigger value="quotas" className="px-1.5 py-2 text-sm shrink-0" onClick={() => setActiveTab("quotas")}>Quotas</TabsTrigger>
-          <TabsTrigger value="maintenance" className="px-1.5 py-2 text-sm shrink-0" onClick={() => setActiveTab("maintenance")}>Maintenance</TabsTrigger>
-          <TabsTrigger value="bulk" className="px-1.5 py-2 text-sm shrink-0" onClick={() => setActiveTab("bulk")}>Import / Export</TabsTrigger>
-          <TabsTrigger value="site-assets" className="px-1.5 py-2 text-sm shrink-0" onClick={() => setActiveTab("site-assets")}>Branding</TabsTrigger>
+        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 h-auto p-1 gap-1">
+          <TabsTrigger value="pending-bookings" className="px-1 py-2 text-xs md:text-sm text-center whitespace-nowrap overflow-hidden text-ellipsis" onClick={() => setActiveTab("pending-bookings")}>Pending</TabsTrigger>
+          <TabsTrigger value="booking-history" className="px-1 py-2 text-xs md:text-sm text-center whitespace-nowrap overflow-hidden text-ellipsis" onClick={() => setActiveTab("booking-history")}>History</TabsTrigger>
+          <TabsTrigger value="users" className="px-1 py-2 text-xs md:text-sm text-center whitespace-nowrap overflow-hidden text-ellipsis" onClick={() => setActiveTab("users")}>Users</TabsTrigger>
+          <TabsTrigger value="instruments" className="px-1 py-2 text-xs md:text-sm text-center whitespace-nowrap overflow-hidden text-ellipsis" onClick={() => setActiveTab("instruments")}>Instruments</TabsTrigger>
+          <TabsTrigger value="delays" className="px-1 py-2 text-xs md:text-sm text-center whitespace-nowrap overflow-hidden text-ellipsis" onClick={() => setActiveTab("delays")}>Delays</TabsTrigger>
+          <TabsTrigger value="status-colors" className="px-1 py-2 text-xs md:text-sm text-center whitespace-nowrap overflow-hidden text-ellipsis" onClick={() => setActiveTab("status-colors")}>Colors</TabsTrigger>
+          <TabsTrigger value="smtp" className="px-1 py-2 text-xs md:text-sm text-center whitespace-nowrap overflow-hidden text-ellipsis" onClick={() => setActiveTab("smtp")}>SMTP</TabsTrigger>
+          <TabsTrigger value="email-templates" className="px-1 py-2 text-xs md:text-sm text-center whitespace-nowrap overflow-hidden text-ellipsis" onClick={() => setActiveTab("email-templates")}>Templates</TabsTrigger>
+          <TabsTrigger value="storage" className="px-1 py-2 text-xs md:text-sm text-center whitespace-nowrap overflow-hidden text-ellipsis" onClick={() => setActiveTab("storage")}>Storage</TabsTrigger>
+          <TabsTrigger value="booking-settings" className="px-1 py-2 text-xs md:text-sm text-center whitespace-nowrap overflow-hidden text-ellipsis" onClick={() => setActiveTab("booking-settings")}>Booking</TabsTrigger>
+          <TabsTrigger value="swap-requests" className="px-1 py-2 text-xs md:text-sm text-center whitespace-nowrap overflow-hidden text-ellipsis" onClick={() => setActiveTab("swap-requests")}>Swaps</TabsTrigger>
+          <TabsTrigger value="waitlist" className="px-1 py-2 text-xs md:text-sm text-center whitespace-nowrap overflow-hidden text-ellipsis" onClick={() => setActiveTab("waitlist")}>Waitlist</TabsTrigger>
+          <TabsTrigger value="quotas" className="px-1 py-2 text-xs md:text-sm text-center whitespace-nowrap overflow-hidden text-ellipsis" onClick={() => setActiveTab("quotas")}>Quotas</TabsTrigger>
+          <TabsTrigger value="maintenance" className="px-1 py-2 text-xs md:text-sm text-center whitespace-nowrap overflow-hidden text-ellipsis" onClick={() => setActiveTab("maintenance")}>Maintenance</TabsTrigger>
+          <TabsTrigger value="bulk" className="px-1 py-2 text-xs md:text-sm text-center whitespace-nowrap overflow-hidden text-ellipsis" onClick={() => setActiveTab("bulk")}>Import / Export</TabsTrigger>
+          <TabsTrigger value="site-assets" className="px-1 py-2 text-xs md:text-sm text-center whitespace-nowrap overflow-hidden text-ellipsis" onClick={() => setActiveTab("site-assets")}>Branding</TabsTrigger>
         </TabsList>
         
         <TabsContent value="pending-bookings" className="mt-6">
