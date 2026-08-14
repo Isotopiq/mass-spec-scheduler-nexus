@@ -100,7 +100,8 @@ const SequenceFileUpload: React.FC<SequenceFileUploadProps> = ({
       return;
     }
 
-    // Edit flow — upload immediately
+    // Edit flow — upload immediately (use replace endpoint if a file already exists)
+    const isReplace = !!existingFileName;
     setBusy(true);
     try {
       const form = new FormData();
@@ -109,16 +110,16 @@ const SequenceFileUpload: React.FC<SequenceFileUploadProps> = ({
       const { data: sess } = await supabase.auth.getSession();
       const token = sess.session?.access_token;
       const resp = await fetch(
-        `${SUPABASE_FUNCTIONS_URL}/s3-upload-sequence`,
+        `${SUPABASE_FUNCTIONS_URL}/${isReplace ? "s3-replace-sequence" : "s3-upload-sequence"}`,
         {
           method: "POST",
           headers: { Authorization: `Bearer ${token}` },
           body: form,
         },
       );
-      const json = await parseJsonOrThrow(resp, "Upload failed");
-      if (!resp.ok) throw new Error(json.error || "Upload failed");
-      toast.success("Sequence file uploaded");
+      const json = await parseJsonOrThrow(resp, isReplace ? "Replace failed" : "Upload failed");
+      if (!resp.ok) throw new Error(json.error || (isReplace ? "Replace failed" : "Upload failed"));
+      toast.success(isReplace ? "Sequence file replaced" : "Sequence file uploaded");
       onUploaded?.({ key: json.key, name: json.name, size: json.size });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Upload failed";
