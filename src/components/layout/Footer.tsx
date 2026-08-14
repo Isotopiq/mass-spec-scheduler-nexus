@@ -11,7 +11,7 @@ const Footer: React.FC = () => {
     <footer className="border-t py-6 bg-background mt-auto">
       <div className="container flex flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
         <div className="flex items-center gap-2">
-          <SiteLogo src={settings?.logo_url} alt="MSLab Logo" className="h-5 w-5" />
+          <SiteLogo src={settings?.logo_url} alt="MSLab Logo" className="h-5 w-auto max-w-[120px] object-contain" />
           <span>MSLab Scheduler</span>
         </div>
         <p>&copy; {currentYear} MSLab Scheduler. All rights reserved.</p>
