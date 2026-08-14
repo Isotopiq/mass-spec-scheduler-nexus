@@ -65,9 +65,9 @@ const Navbar: React.FC = () => {
   return (
     <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between h-16">
-          <div className="flex items-center space-x-8">
-            <div className="md:hidden">
+        <div className="flex justify-between items-center h-16">
+          <div className="flex items-center space-x-4 flex-shrink-0 min-w-0">
+            <div className="xl:hidden">
               <Button
                 variant="ghost"
                 size="icon"
@@ -80,31 +80,31 @@ const Navbar: React.FC = () => {
               </Button>
             </div>
 
-            <Link to="/" className="flex items-center">
+            <Link to="/" className="flex items-center flex-shrink-0 min-w-0">
               <img 
                 src={settings?.logo_url || DEFAULT_LOGO} 
-                alt="TeSlab Lab Logo" 
-                className="h-8 w-auto object-contain"
+                alt="Site logo" 
+                className="h-8 xl:h-10 w-auto max-w-[120px] sm:max-w-[140px] object-contain"
               />
-              <span className="ml-2 text-xl font-bold text-gray-900 hidden sm:inline">
+              <span className="ml-2 text-base font-bold text-gray-900 hidden sm:inline whitespace-nowrap">
                 MSLab Scheduler
               </span>
             </Link>
             
-            <div className="hidden md:flex space-x-4">
+            <div className="hidden xl:flex items-center space-x-1">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 return (
                   <Link
                     key={item.path}
                     to={item.path}
-                    className={`inline-flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                    className={`inline-flex items-center px-2 py-2 rounded-md text-sm font-medium whitespace-nowrap shrink-0 transition-colors ${
                       isActive(item.path)
                         ? "bg-mslab-100 text-mslab-700"
                         : "text-gray-600 hover:text-gray-900 hover:bg-gray-100"
                     }`}
                   >
-                    <Icon className="h-4 w-4 mr-2" />
+                    <Icon className="h-4 w-4 mr-1" />
                     {item.label}
                   </Link>
                 );
@@ -116,13 +116,13 @@ const Navbar: React.FC = () => {
                   <Link
                     key={item.path}
                     to={item.path}
-                    className={`inline-flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                    className={`inline-flex items-center px-2 py-2 rounded-md text-sm font-medium whitespace-nowrap shrink-0 transition-colors ${
                       isActive(item.path)
                         ? "bg-mslab-100 text-mslab-700"
                         : "text-gray-600 hover:text-gray-900 hover:bg-gray-100"
                     }`}
                   >
-                    <Icon className="h-4 w-4 mr-2" />
+                    <Icon className="h-4 w-4 mr-1" />
                     {item.label}
                   </Link>
                 );
@@ -184,7 +184,7 @@ const Navbar: React.FC = () => {
       </div>
 
       {mobileMenuOpen && (
-        <div className="absolute top-16 left-0 w-full bg-white border-b shadow-lg px-4 py-4 md:hidden z-50">
+        <div className="absolute top-16 left-0 w-full bg-white border-b shadow-lg px-4 py-4 xl:hidden z-50">
           <div className="flex flex-col space-y-2">
             {navItems.map((item) => {
               const Icon = item.icon;
