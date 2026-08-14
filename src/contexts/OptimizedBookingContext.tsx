@@ -350,6 +350,8 @@ export const OptimizedBookingProvider: React.FC<{ children: React.ReactNode }> =
               userEmail,
               bookingData.userName,
               bookingData.instrumentName,
+              bookingData.start,
+              bookingData.end,
               bookingData.status
             );
             
@@ -524,7 +526,10 @@ export const OptimizedBookingProvider: React.FC<{ children: React.ReactNode }> =
                 booking.instrumentName,
                 comment.userName,
                 comment.content,
-                new Date(booking.start).toLocaleString()
+                new Date(booking.start).toLocaleString(),
+                booking.start,
+                booking.end,
+                new Date().toISOString()
               );
               
               console.log("Comment notification payload:", notification);

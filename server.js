@@ -1050,7 +1050,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
   try {
     const { email, redirectTo } = req.body;
     if (!email) throw new Error('Email required');
-    const { rows } = await pool.query('SELECT id, email FROM profiles WHERE email = $1', [email]);
+    const { rows } = await pool.query('SELECT id, email, name FROM profiles WHERE email = $1', [email]);
     if (!rows.length) {
       // Don't reveal whether email exists
       return res.json({ data: {}, error: null });
@@ -1074,7 +1074,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
         subject: 'Password reset',
         htmlContent: `<p style="color:#4b5563;font-size:16px;line-height:1.6;">Click the button below to reset your password. The link expires in 1 hour.</p><p style="text-align:center;margin:24px 0;"><a href="{{resetUrl}}" style="display:inline-block;background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#ffffff;padding:14px 28px;border-radius:6px;text-decoration:none;font-weight:600;">Reset Password</a></p><p style="color:#4b5563;font-size:14px;line-height:1.5;">If the button does not work, paste this link into your browser:<br><a href="{{resetUrl}}" style="color:#4f46e5;word-break:break-all;">{{resetUrl}}</a></p>`,
         templateType: 'password_reset',
-        variables: { resetUrl }
+        variables: { resetUrl, userName: rows[0].name || 'there' }
       });
     }
     res.json({ data: {}, error: null });

@@ -266,6 +266,8 @@ export const useBookings = (users: User[]) => {
               userEmail,
               bookingData.userName,
               bookingData.instrumentName,
+              bookingData.start,
+              bookingData.end,
               bookingData.status
             );
             
@@ -365,7 +367,10 @@ export const useBookings = (users: User[]) => {
                 booking.instrumentName,
                 commentAuthor,
                 comment.content,
-                new Date(booking.start).toLocaleString()
+                new Date(booking.start).toLocaleString(),
+                booking.start,
+                booking.end,
+                new Date().toISOString()
               );
               
               const emailSent = await sendEmail(commentNotification);

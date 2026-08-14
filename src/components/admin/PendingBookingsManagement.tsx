@@ -87,6 +87,8 @@ const PendingBookingsManagement: React.FC = () => {
             userEmail,
             booking.userName,
             booking.instrumentName,
+            booking.start,
+            booking.end,
             "confirmed"
           );
           
@@ -133,6 +135,8 @@ const PendingBookingsManagement: React.FC = () => {
             userEmail,
             booking.userName,
             booking.instrumentName,
+            booking.start,
+            booking.end,
             "cancelled"
           );
           

@@ -133,11 +133,15 @@ Lab Management Team
 };
 
 export const createStatusUpdateNotification = (
-  userEmail: string, 
+  userEmail: string,
   userName: string,
-  instrumentName: string, 
+  instrumentName: string,
+  startDate: string,
+  endDate: string,
   status: string
 ): EmailNotification => {
+  const start = new Date(startDate).toLocaleString();
+  const end = new Date(endDate).toLocaleString();
   return {
     to: userEmail,
     subject: `Booking Status Update: ${instrumentName}`,
@@ -146,6 +150,8 @@ Dear ${userName},
 
 Your booking for ${instrumentName} has been updated.
 New status: ${status}
+Start: ${start}
+End: ${end}
 
 Thank you for using the Lab Management System.
 
@@ -156,8 +162,8 @@ Lab Management Team
     variables: {
       userName: userName || "",
       instrumentName: instrumentName || "",
-      startDate: new Date().toLocaleString(),
-      endDate: new Date().toLocaleString(),
+      startDate: start,
+      endDate: end,
       status: status || ""
     }
   };
@@ -266,7 +272,10 @@ export const createCommentNotification = (
   instrumentName: string,
   commentBy: string,
   commentContent: string,
-  bookingDate: string
+  bookingDate: string,
+  startDate?: string,
+  endDate?: string,
+  commentTime?: string
 ): EmailNotification => {
   console.log("Creating comment notification with params:", {
     userEmail,
@@ -277,23 +286,27 @@ export const createCommentNotification = (
     bookingDate
   });
 
+  const start = startDate ? new Date(startDate).toLocaleString() : bookingDate;
+  const end = endDate ? new Date(endDate).toLocaleString() : bookingDate;
+  const time = commentTime ? new Date(commentTime).toLocaleString() : new Date().toLocaleString();
+
   const htmlContent = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9;">
       <div style="background-color: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
         <h2 style="color: #333; margin-bottom: 20px; border-bottom: 2px solid #007bff; padding-bottom: 10px;">New Comment on Your Booking</h2>
-        
+
         <div style="margin-bottom: 20px;">
           <p style="margin: 5px 0;"><strong>Dear ${userName},</strong></p>
           <p style="margin: 5px 0;"><strong>Instrument:</strong> ${instrumentName}</p>
           <p style="margin: 5px 0;"><strong>Booking Date:</strong> ${bookingDate}</p>
           <p style="margin: 5px 0;"><strong>Comment by:</strong> ${commentBy}</p>
         </div>
-        
+
         <div style="background-color: #f8f9fa; padding: 15px; border-left: 4px solid #007bff; margin: 20px 0;">
           <h4 style="margin: 0 0 10px 0; color: #333;">Comment:</h4>
           <p style="margin: 0; line-height: 1.5;">${commentContent}</p>
         </div>
-        
+
         <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; text-align: center; color: #666;">
           <p>Best regards,<br>Lab Management Team</p>
         </div>
@@ -325,7 +338,10 @@ Lab Management Team
       instrumentName: instrumentName || "",
       commentBy: commentBy || "",
       commentContent: commentContent || "",
-      bookingDate: bookingDate || ""
+      bookingDate: bookingDate || "",
+      startDate: start,
+      endDate: end,
+      commentTime: time
     }
   };
 
