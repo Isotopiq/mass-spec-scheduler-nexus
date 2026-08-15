@@ -21,7 +21,7 @@ function cardShell({ title, content }) {
       .email-card { border-radius: 16px !important; }
       .pad-x { padding-left: 22px !important; padding-right: 22px !important; }
       .hero { padding-top: 28px !important; padding-bottom: 26px !important; }
-      .logo { width: 245px !important; max-width: 100% !important; }
+      .logo { max-height: 64px !important; max-width: 180px !important; width: auto !important; height: auto !important; }
       .hero-title { font-size: 30px !important; line-height: 36px !important; }
       .stack { display: block !important; width: 100% !important; }
       .stack-gap { padding-top: 14px !important; }
@@ -46,7 +46,7 @@ function cardShell({ title, content }) {
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
                 <tr>
                   <td class="pad-x" align="center" style="padding:26px 36px 18px;">
-                    <img class="logo" src="{{logoUrl}}" alt="{{siteName}}" width="290" style="display:block; width:290px; max-width:100%; height:auto;">
+                    <img class="logo" src="{{logoUrl}}" alt="{{siteName}}" style="display:block; max-height:64px; max-width:180px; width:auto; height:auto;">
                   </td>
                 </tr>
               </table>

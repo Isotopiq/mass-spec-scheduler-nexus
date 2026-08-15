@@ -20,7 +20,7 @@ function shell({ title, content }) {
           <tr>
             <td style="background:#ffffff;padding:24px 0;text-align:center;border-bottom:1px solid #e5e7eb;">
               <a href="{{siteUrl}}" target="_blank" style="display:inline-block;">
-                <img src="{{logoUrl}}" alt="MSLab Scheduler" style="max-height:64px;max-width:200px;border:0;display:block;margin:0 auto;">
+                <img src="{{logoUrl}}" alt="MSLab Scheduler" style="max-height:64px;max-width:180px;border:0;display:block;margin:0 auto;height:auto;width:auto;">
               </a>
             </td>
           </tr>
