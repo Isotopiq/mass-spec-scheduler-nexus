@@ -408,7 +408,7 @@ async function validateMaintenanceEvent(action, values, filters) {
 
 async function handleRestQuery(req, res) {
   const user = req.user;
-  const { table, action, columns, values, filters, order, limit, single, count } = req.body || {};
+  const { table, action, columns, values, filters, order, limit, offset, single, count } = req.body || {};
 
   try {
     if (!user) throw new Error('Unauthorized');
@@ -508,6 +508,7 @@ async function handleRestQuery(req, res) {
         if (safeOrder) sql += pgFormat(' ORDER BY "%I" %s', safeOrder, order.ascending === false ? 'DESC' : 'ASC');
       }
       if (limit && Number.isInteger(limit)) sql += ` LIMIT ${Number(limit)}`;
+      if (offset && Number.isInteger(offset)) sql += ` OFFSET ${Number(offset)}`;
     } else if (action === 'insert') {
       const rows = Array.isArray(safeValues) ? safeValues : [safeValues];
       if (rows.length === 0) throw new Error('No values to insert');

@@ -137,6 +137,7 @@ class QueryBuilder {
   private filters: any[] = [];
   private orderClause: { column: string; ascending: boolean } | null = null;
   private limitValue: number | null = null;
+  private offsetValue: number | null = null;
   private singleValue: boolean | 'maybe' | null = null;
   private countValue: 'exact' | null = null;
 
@@ -187,6 +188,8 @@ class QueryBuilder {
   }
 
   limit(n: number) { this.limitValue = n; return this; }
+  offset(n: number) { this.offsetValue = n; return this; }
+  range(from: number, to: number) { this.offsetValue = from; this.limitValue = to - from + 1; return this; }
   single() { this.singleValue = true; return this; }
   maybeSingle() { this.singleValue = 'maybe'; return this; }
   csv() { return this; }
@@ -200,6 +203,7 @@ class QueryBuilder {
       filters: this.filters,
       order: this.orderClause,
       limit: this.limitValue,
+      offset: this.offsetValue,
       single: this.singleValue,
       count: this.countValue,
     };
