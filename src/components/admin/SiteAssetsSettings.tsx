@@ -17,6 +17,7 @@ const DEFAULT_SITE_TITLE = "TeSlaa Lab MS Scheduling Suite";
 const SiteAssetsSettings: React.FC = () => {
   const { settings, isLoading, reload } = useAppSettings();
   const [siteName, setSiteName] = useState("");
+  const [siteUrl, setSiteUrl] = useState("");
   const [saving, setSaving] = useState<string | null>(null);
   const [cropOpen, setCropOpen] = useState(false);
   const [cropSrc, setCropSrc] = useState<string | null>(null);
@@ -27,7 +28,8 @@ const SiteAssetsSettings: React.FC = () => {
 
   useEffect(() => {
     setSiteName(settings?.site_name || DEFAULT_SITE_TITLE);
-  }, [settings?.site_name]);
+    setSiteUrl(settings?.site_url || "");
+  }, [settings?.site_name, settings?.site_url]);
 
   const uploadAsset = async (file: File, key: "logo_url" | "favicon_url") => {
     if (!settings?.id) return;
@@ -114,6 +116,27 @@ const SiteAssetsSettings: React.FC = () => {
     }
   };
 
+  const saveSiteUrl = async () => {
+    if (!settings?.id) return;
+    setSaving("site_url");
+    try {
+      const value = siteUrl.trim() || null;
+      const { error } = await supabase
+        .from("app_settings")
+        .update({ site_url: value, updated_at: new Date().toISOString() })
+        .eq("id", settings.id);
+      if (error) throw new Error(error.message || "Failed to save public site URL");
+      toast.success("Public site URL updated");
+      reload();
+      window.dispatchEvent(new CustomEvent('app-settings-updated'));
+    } catch (err) {
+      console.error("Site URL save error:", err);
+      toast.error(err instanceof Error ? err.message : "Failed to save public site URL");
+    } finally {
+      setSaving(null);
+    }
+  };
+
   if (isLoading || !settings) {
     return (
       <Card className="p-6">
@@ -130,7 +153,7 @@ const SiteAssetsSettings: React.FC = () => {
       <CardHeader>
         <CardTitle>Site Assets</CardTitle>
         <CardDescription>
-          Upload a custom logo and favicon, and set the browser tab title.
+          Upload a custom logo and favicon, set the browser tab title, and configure the public site URL used in email links and logos.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-8 max-w-md">
@@ -153,6 +176,28 @@ const SiteAssetsSettings: React.FC = () => {
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : null}
             Save Site Name
+          </Button>
+        </div>
+
+        <div className="space-y-3">
+          <Label htmlFor="site-url">Public Site URL (used in emails)</Label>
+          <Input
+            id="site-url"
+            value={siteUrl}
+            onChange={(e) => setSiteUrl(e.target.value)}
+            placeholder="https://your-domain.com"
+            disabled={!!saving}
+          />
+          <Button
+            type="button"
+            onClick={saveSiteUrl}
+            disabled={!!saving}
+            className="w-full"
+          >
+            {saving === "site_url" ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : null}
+            Save Site URL
           </Button>
         </div>
 

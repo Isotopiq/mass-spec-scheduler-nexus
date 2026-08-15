@@ -15,6 +15,7 @@ export interface AppSettings {
   logo_url: string | null;
   favicon_url: string | null;
   site_name: string | null;
+  site_url: string | null;
   updated_at: string;
 }
 

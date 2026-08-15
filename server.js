@@ -688,15 +688,73 @@ function smtpTransport(settings) {
   return nodemailer.createTransport(transport);
 }
 
-async function getLogoAndSiteUrl() {
+function deriveSiteUrl(req) {
+  if (!req) return null;
+  const origin = req.get('origin') || req.get('referer');
+  if (origin) {
+    try {
+      const url = new URL(origin);
+      return `${url.protocol}//${url.host}`;
+    } catch (e) {
+      // fall through
+    }
+  }
+  const host = req.get('host');
+  if (!host) return null;
+  const protocol = req.get('x-forwarded-proto') || (req.secure ? 'https' : 'http');
+  return `${protocol}://${host}`;
+}
+
+async function getLogoAndSiteUrl(req) {
   const settings = await getSettings();
-  const siteUrl = process.env.SITE_URL || `http://localhost:${PORT || 3000}`;
+  const siteUrl = settings?.site_url || process.env.SITE_URL || deriveSiteUrl(req) || `http://localhost:${PORT || 3000}`;
   const defaultLogo = `${siteUrl.replace(/\/$/, '')}/site-assets/40965317-613a-41b7-bc11-d9e8b6cba9ae.png`;
   let logoUrl = settings?.logo_url || settings?.favicon_url || defaultLogo;
   if (logoUrl && logoUrl.startsWith('/') && !logoUrl.startsWith('//')) {
     logoUrl = `${siteUrl.replace(/\/$/, '')}${logoUrl}`;
   }
   return { logoUrl, siteUrl };
+}
+
+function getLocalLogoPath(logoUrl) {
+  if (!logoUrl) return null;
+  let pathname = logoUrl;
+  try {
+    const url = new URL(logoUrl);
+    pathname = url.pathname;
+  } catch (e) {
+    // already relative
+  }
+  if (pathname.startsWith('/uploads/')) {
+    return path.join(UPLOAD_DIR, pathname.replace('/uploads/', ''));
+  }
+  if (pathname.startsWith('/site-assets/')) {
+    return path.join(__dirname, 'dist', pathname);
+  }
+  return null;
+}
+
+async function resolveLogoAttachment(logoUrl) {
+  const localPath = getLocalLogoPath(logoUrl);
+  if (localPath && fs.existsSync(localPath)) {
+    const ext = path.extname(localPath).toLowerCase();
+    const contentType = ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'application/octet-stream';
+    return { content: fs.readFileSync(localPath), contentType, filename: path.basename(localPath) };
+  }
+  if (logoUrl && (logoUrl.startsWith('http://') || logoUrl.startsWith('https://'))) {
+    try {
+      const resp = await fetch(logoUrl);
+      if (!resp.ok) return null;
+      const content = Buffer.from(await resp.arrayBuffer());
+      const contentType = resp.headers.get('content-type') || 'application/octet-stream';
+      const filename = path.basename(new URL(logoUrl).pathname) || 'logo';
+      return { content, contentType, filename };
+    } catch (e) {
+      console.error('resolveLogoAttachment fetch error:', e);
+      return null;
+    }
+  }
+  return null;
 }
 
 function substituteVars(text, vars) {
@@ -766,19 +824,19 @@ async function createNotification({ userId, type = 'info', title, message, link 
   }
 }
 
-async function sendEmailToUser({ userId, templateType, variables, fallbackSubject = 'Notification', fallbackHtml = '' }) {
+async function sendEmailToUser({ userId, templateType, variables, fallbackSubject = 'Notification', fallbackHtml = '' }, req) {
   try {
     const userRes = await pool.query('SELECT email, name FROM profiles WHERE id = $1', [userId]);
     if (!userRes.rows.length) return;
     const { email, name } = userRes.rows[0];
-    const { logoUrl, siteUrl } = await getLogoAndSiteUrl();
+    const { logoUrl, siteUrl } = await getLogoAndSiteUrl(req);
     await sendEmailWithTemplate({
       to: email,
       subject: fallbackSubject,
       htmlContent: fallbackHtml,
       templateType,
       variables: { userName: name || 'there', siteUrl, logoUrl, ...(variables || {}) }
-    });
+    }, req);
   } catch (e) {
     console.error('sendEmailToUser error:', e);
   }
@@ -881,13 +939,15 @@ async function sendEmailDigest(userId, frequency) {
   } catch (e) { console.error('sendEmailDigest error:', e); }
 }
 
-async function sendEmailWithTemplate({ to, subject, htmlContent, templateType, variables }) {
+async function sendEmailWithTemplate({ to, subject, htmlContent, templateType, variables }, req) {
   const settingsRows = await pool.query('SELECT * FROM smtp_settings LIMIT 1');
   const settings = settingsRows.rows[0];
   if (!settings) throw new Error('SMTP not configured. Go to Admin → SMTP and save your mail server settings before sending test emails.');
   global.smtpSettingsCache = settings;
 
-  const { logoUrl, siteUrl } = await getLogoAndSiteUrl();
+  const { logoUrl: publicLogoUrl, siteUrl } = await getLogoAndSiteUrl(req);
+  const logoAttachment = await resolveLogoAttachment(publicLogoUrl);
+  const logoUrl = logoAttachment ? 'cid:logo' : publicLogoUrl;
   const appName = 'MSLab Scheduler';
   const vars = {
     ...(variables || {}),
@@ -933,14 +993,19 @@ async function sendEmailWithTemplate({ to, subject, htmlContent, templateType, v
 
   console.log('sendEmailWithTemplate:', { to, subject, templateType, bodyLength: body.length, logoUrl, siteUrl });
 
+  const mailOptions = {
+    from: `"${settings.from_name || 'MSLab Scheduler'}" <${settings.from_email}>`,
+    to,
+    subject,
+    html: body
+  };
+  if (logoAttachment) {
+    mailOptions.attachments = [{ ...logoAttachment, cid: 'logo' }];
+  }
+
   const transporter = smtpTransport(settings);
   try {
-    const info = await transporter.sendMail({
-      from: `"${settings.from_name || 'MSLab Scheduler'}" <${settings.from_email}>`,
-      to,
-      subject,
-      html: body
-    });
+    const info = await transporter.sendMail(mailOptions);
     console.log('Email sent:', info.messageId);
     return info;
   } catch (err) {
@@ -1120,7 +1185,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
         htmlContent: `<p style="color:#4b5563;font-size:16px;line-height:1.6;">Click the button below to reset your password. The link expires in 1 hour.</p><p style="text-align:center;margin:24px 0;"><a href="{{resetUrl}}" style="display:inline-block;background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#ffffff;padding:14px 28px;border-radius:6px;text-decoration:none;font-weight:600;">Reset Password</a></p><p style="color:#4b5563;font-size:14px;line-height:1.5;">If the button does not work, paste this link into your browser:<br><a href="{{resetUrl}}" style="color:#4f46e5;word-break:break-all;">{{resetUrl}}</a></p>`,
         templateType: 'password_reset',
         variables: { resetUrl, userName: rows[0].name || 'there' }
-      });
+      }, req);
     }
     res.json({ data: {}, error: null });
   } catch (err) {
@@ -1200,7 +1265,7 @@ app.post('/api/auth/admin-create-user', requireAuth, requireAdmin, async (req, r
           userEmail: email,
           temporaryPassword: pwd
         }
-      });
+      }, req);
     } catch (emailErr) {
       console.error('Account creation email failed:', emailErr.message);
     }
@@ -1703,7 +1768,7 @@ app.get('/api/storage/public-url', (req, res) => {
 app.post('/api/functions/send-email', requireAuth, async (req, res) => {
   try {
     const { to, subject, htmlContent, templateType, variables } = req.body;
-    await sendEmailWithTemplate({ to, subject, htmlContent, templateType, variables });
+    await sendEmailWithTemplate({ to, subject, htmlContent, templateType, variables }, req);
     res.json({ data: { success: true }, error: null });
   } catch (err) {
     console.error('send-email error:', err);
