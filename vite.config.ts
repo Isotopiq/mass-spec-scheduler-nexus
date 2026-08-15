@@ -13,6 +13,11 @@ export default defineConfig({
     },
   },
   plugins: [react()],
+  build: {
+    rollupOptions: {
+      maxParallelFileOps: 5,
+    },
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
