@@ -1,3 +1,16 @@
+export interface UserSettings {
+  emailNotifications?: boolean;
+  bookingReminders?: boolean;
+  darkMode?: boolean;
+  language?: string;
+  timeZone?: string;
+  calendarSync?: boolean;
+  autoLogout?: number;
+  twoFactor?: boolean;
+  calendarSyncToken?: string | null;
+  calendarSyncUrl?: string | null;
+}
+
 export interface Profile {
   id: string;
   name: string;
@@ -5,6 +18,8 @@ export interface Profile {
   role: 'admin' | 'user';
   department?: string;
   profileImage?: string | null;
+  settings?: UserSettings;
+  twoFactorEnabled?: boolean;
 }
 
 export interface User extends Profile {

@@ -92,6 +92,24 @@ const auth = {
   async signInWithPassword({ email, password, rememberMe }: { email: string; password: string; rememberMe?: boolean }) {
     const json = await apiPost('/api/auth/signin', { email, password, rememberMe });
     if (json.error) return { data: null, error: json.error };
+    if (json.data?.needs2FA) {
+      return {
+        data: {
+          user: json.data.user,
+          needs2FA: true,
+          tempToken: json.data.tempToken,
+          rememberMe: json.data.rememberMe,
+        },
+        error: null,
+      };
+    }
+    if (json.data?.session) setAuth(json.data.session.access_token, json.data.session.user);
+    return { data: { session: json.data?.session, user: json.data?.user }, error: null };
+  },
+
+  async verify2FA({ email, tempToken, code, rememberMe }: { email: string; tempToken: string; code: string; rememberMe?: boolean }) {
+    const json = await apiPost('/api/auth/2fa/verify', { email, tempToken, code, rememberMe });
+    if (json.error) return { data: null, error: json.error };
     if (json.data?.session) setAuth(json.data.session.access_token, json.data.session.user);
     return { data: { session: json.data?.session, user: json.data?.user }, error: null };
   },

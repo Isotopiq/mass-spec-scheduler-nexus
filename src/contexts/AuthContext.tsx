@@ -11,7 +11,8 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   users: User[];
-  login: (email: string, password: string, rememberMe?: boolean) => Promise<void>;
+  login: (email: string, password: string, rememberMe?: boolean) => Promise<{ needs2FA: boolean; tempToken?: string; email?: string; rememberMe?: boolean } | undefined>;
+  verify2FA: (tempToken: string, code: string, email: string, rememberMe?: boolean) => Promise<void>;
   logout: () => Promise<void>;
   updateUserProfile: (updatedUser: User) => void;
   updateUserPassword: (userId: string, newPassword: string, oldPassword?: string) => Promise<void>;
@@ -27,6 +28,12 @@ export const AuthContext = createContext<AuthContextType | undefined>(undefined)
 const API_URL = import.meta.env.VITE_API_URL || '';
 const AUTH_USER_KEY = 'standalone_auth_user';
 
+const parseSettings = (value: any): any => {
+  if (!value) return {};
+  if (typeof value === 'object') return value;
+  try { return JSON.parse(value); } catch { return {}; }
+};
+
 const profileFromRow = (row: any): Profile => ({
   id: row.id,
   name: row.name,
@@ -34,6 +41,8 @@ const profileFromRow = (row: any): Profile => ({
   role: row.role as 'admin' | 'user',
   department: row.department,
   profileImage: row.profile_image,
+  settings: parseSettings(row.settings),
+  twoFactorEnabled: row.two_factor_enabled || false,
 });
 
 const userFromRow = (row: any): User => ({
@@ -188,8 +197,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const login = async (email: string, password: string, rememberMe?: boolean) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password, rememberMe });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password, rememberMe });
     if (error) throw error;
+    if (data?.needs2FA) {
+      return {
+        needs2FA: true,
+        tempToken: data.tempToken,
+        email,
+        rememberMe,
+      };
+    }
+  };
+
+  const verify2FA = async (tempToken: string, code: string, email: string, rememberMe?: boolean) => {
+    const { data, error } = await supabase.auth.verify2FA({ email, tempToken, code, rememberMe });
+    if (error) throw error;
+    if (data?.session?.user) {
+      const baseUser = data.session.user as User;
+      try {
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', baseUser.id)
+          .single();
+        const profile = profileData ? profileFromRow(profileData) : undefined;
+        setUser(createExtendedUser(baseUser, profile));
+      } catch (profileError) {
+        console.error('AuthContext: Profile fetch error after 2FA:', profileError);
+        setUser(baseUser);
+      }
+    }
   };
 
   const signup = async (email: string, password: string, name: string, _role: 'admin' | 'user' = 'user'): Promise<void> => {
@@ -295,6 +332,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isLoading,
     users,
     login,
+    verify2FA,
     logout,
     updateUserProfile,
     updateUserPassword,

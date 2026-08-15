@@ -39,9 +39,10 @@ const AppLayout: React.FC = () => {
     if (isAuthenticated && user) {
       let autoLogoutMinutes = 30;
       try {
+        const userSettings = user.settings;
         const savedSettings = localStorage.getItem('mslab_user_settings');
-        const settings = savedSettings ? JSON.parse(savedSettings) : { autoLogout: 30 };
-        autoLogoutMinutes = Number(settings.autoLogout) || 30;
+        const localSettings = savedSettings ? JSON.parse(savedSettings) : { autoLogout: 30 };
+        autoLogoutMinutes = Number(userSettings?.autoLogout ?? localSettings?.autoLogout) || 30;
       } catch {
         autoLogoutMinutes = 30;
       }

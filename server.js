@@ -12,6 +12,8 @@ import * as fs from 'fs';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import crypto from 'crypto';
+import speakeasy from 'speakeasy';
+import QRCode from 'qrcode';
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadBucketCommand } from '@aws-sdk/client-s3';
 import { cardTemplates, modernTemplates } from './emailTemplatePresets.js';
 
@@ -672,6 +674,9 @@ function userRowToSession(row, options = {}) {
     role: row.role,
     department: row.department,
     profileImage: row.profile_image,
+    settings: { ...(row.settings || {}), twoFactor: row.two_factor_enabled || false, twoFactorEnabled: row.two_factor_enabled || false },
+    twoFactorEnabled: row.two_factor_enabled || false,
+    two_factor_enabled: row.two_factor_enabled || false,
     app_metadata: {},
     user_metadata: { name: row.name, department: row.department },
     aud: 'authenticated',
@@ -910,11 +915,26 @@ async function createNotification({ userId, type = 'info', title, message, link 
   }
 }
 
+function parseUserSettings(value) {
+  if (!value) return {};
+  if (typeof value === 'object') return value;
+  try { return JSON.parse(value); } catch { return {}; }
+}
+
 async function sendEmailToUser({ userId, templateType, variables, fallbackSubject = 'Notification', fallbackHtml = '' }, req) {
   try {
-    const userRes = await pool.query('SELECT email, name FROM profiles WHERE id = $1', [userId]);
+    const userRes = await pool.query('SELECT email, name, settings FROM profiles WHERE id = $1', [userId]);
     if (!userRes.rows.length) return;
-    const { email, name } = userRes.rows[0];
+    const { email, name, settings } = userRes.rows[0];
+    const userSettings = parseUserSettings(settings);
+    if (userSettings.emailNotifications === false) {
+      console.log(`sendEmailToUser skipped for user ${userId}: email notifications disabled`);
+      return;
+    }
+    if (templateType === 'booking_reminder' && userSettings.bookingReminders === false) {
+      console.log(`sendEmailToUser skipped for user ${userId}: booking reminders disabled`);
+      return;
+    }
     const { logoUrl, siteUrl } = await getLogoAndSiteUrl(req);
     await sendEmailWithTemplate({
       to: email,
@@ -993,9 +1013,14 @@ async function sendWaitlistFilledNotification(booking) {
 
 async function sendEmailDigest(userId, frequency) {
   try {
-    const userRes = await pool.query('SELECT email, name FROM profiles WHERE id = $1', [userId]);
+    const userRes = await pool.query('SELECT email, name, settings FROM profiles WHERE id = $1', [userId]);
     if (!userRes.rows.length) return;
-    const { email, name } = userRes.rows[0];
+    const { email, name, settings } = userRes.rows[0];
+    const userSettings = parseUserSettings(settings);
+    if (userSettings.emailNotifications === false) {
+      console.log(`sendEmailDigest skipped for user ${userId}: email notifications disabled`);
+      return;
+    }
 
     const days = frequency === 'weekly' ? 7 : 1;
     const { rows } = await pool.query(
@@ -1208,6 +1233,26 @@ app.post('/api/auth/signin', async (req, res) => {
     if (!rows.length) throw new Error('Invalid login credentials');
     const valid = await bcrypt.compare(password, rows[0].password_hash);
     if (!valid) throw new Error('Invalid login credentials');
+
+    if (rows[0].two_factor_enabled && rows[0].two_factor_secret) {
+      const tempToken = jwt.sign({
+        id: rows[0].id,
+        email: rows[0].email,
+        role: rows[0].role,
+        name: rows[0].name,
+        twoFactorPending: true
+      }, JWT_SECRET, { expiresIn: '5m' });
+      return res.json({
+        data: {
+          user: { id: rows[0].id, email: rows[0].email, name: rows[0].name, role: rows[0].role, twoFactorEnabled: true },
+          needs2FA: true,
+          tempToken,
+          rememberMe
+        },
+        error: null
+      });
+    }
+
     await pool.query('UPDATE profiles SET last_sign_in_at = now() WHERE id = $1', [rows[0].id]);
     const expiresIn = rememberMe ? '30d' : '1d';
     const { user, accessToken, expires_in } = userRowToSession(rows[0], { expiresIn });
@@ -1238,6 +1283,151 @@ app.get('/api/auth/user', requireAuth, async (req, res) => {
     if (!rows.length) throw new Error('User not found');
     const { user } = userRowToSession(rows[0]);
     res.json({ data: { user }, error: null });
+  } catch (err) {
+    res.status(400).json({ data: null, error: { message: err.message } });
+  }
+});
+
+app.put('/api/user/settings', requireAuth, async (req, res) => {
+  try {
+    let { settings } = req.body || {};
+    if (typeof settings !== 'object' || settings === null) throw new Error('settings object required');
+
+    const { rows: currentRows } = await pool.query('SELECT calendar_sync_token FROM profiles WHERE id = $1', [req.user.id]);
+    const currentRow = currentRows[0] || {};
+    let token = currentRow.calendar_sync_token;
+
+    if (settings.calendarSync) {
+      if (!token) {
+        token = crypto.randomBytes(32).toString('hex');
+        await pool.query('UPDATE profiles SET calendar_sync_token = $1 WHERE id = $2', [token, req.user.id]);
+      }
+      const siteUrl = deriveSiteUrl(req) || `http://localhost:${PORT}`;
+      settings.calendarSyncToken = token;
+      settings.calendarSyncUrl = `${siteUrl.replace(/\/$/, '')}/api/calendar/${token}/feed.ics`;
+    } else if (token) {
+      await pool.query('UPDATE profiles SET calendar_sync_token = NULL WHERE id = $1', [req.user.id]);
+      settings.calendarSyncToken = null;
+      settings.calendarSyncUrl = null;
+    }
+
+    const { rows } = await pool.query(
+      'UPDATE profiles SET settings = $1::jsonb, updated_at = now() WHERE id = $2 RETURNING *',
+      [JSON.stringify(settings), req.user.id]
+    );
+    if (!rows.length) throw new Error('User not found');
+    const { user } = userRowToSession(rows[0]);
+    res.json({ data: { user }, error: null });
+  } catch (err) {
+    res.status(400).json({ data: null, error: { message: err.message } });
+  }
+});
+
+app.post('/api/auth/2fa/setup', requireAuth, async (req, res) => {
+  try {
+    const { siteName } = await getLogoAndSiteUrl(req);
+    const secret = speakeasy.generateSecret({
+      length: 32,
+      name: req.user.email,
+      issuer: siteName,
+    });
+    await pool.query(
+      'UPDATE profiles SET two_factor_secret = $1, two_factor_enabled = false WHERE id = $2',
+      [secret.base32, req.user.id]
+    );
+    const qrCodeDataUrl = await QRCode.toDataURL(secret.otpauth_url);
+    res.json({
+      data: {
+        secret: secret.base32,
+        otpauthUrl: secret.otpauth_url,
+        qrCodeDataUrl,
+      },
+      error: null,
+    });
+  } catch (err) {
+    res.status(400).json({ data: null, error: { message: err.message } });
+  }
+});
+
+app.post('/api/auth/2fa/enable', requireAuth, async (req, res) => {
+  try {
+    const { code } = req.body;
+    if (!code) throw new Error('Verification code required');
+    const { rows } = await pool.query(
+      'SELECT two_factor_secret FROM profiles WHERE id = $1',
+      [req.user.id]
+    );
+    if (!rows.length || !rows[0].two_factor_secret) throw new Error('2FA not set up');
+    const valid = speakeasy.totp.verify({
+      secret: rows[0].two_factor_secret,
+      encoding: 'base32',
+      token: String(code),
+      window: 1,
+    });
+    if (!valid) throw new Error('Invalid verification code');
+    await pool.query('UPDATE profiles SET two_factor_enabled = true WHERE id = $1', [req.user.id]);
+    res.json({ data: { twoFactorEnabled: true }, error: null });
+  } catch (err) {
+    res.status(400).json({ data: null, error: { message: err.message } });
+  }
+});
+
+app.post('/api/auth/2fa/disable', requireAuth, async (req, res) => {
+  try {
+    const { code } = req.body || {};
+    const { rows } = await pool.query(
+      'SELECT two_factor_secret, two_factor_enabled FROM profiles WHERE id = $1',
+      [req.user.id]
+    );
+    if (!rows.length) throw new Error('User not found');
+    const { two_factor_secret, two_factor_enabled } = rows[0];
+    if (two_factor_enabled && two_factor_secret) {
+      if (!code) throw new Error('Verification code required');
+      const valid = speakeasy.totp.verify({
+        secret: two_factor_secret,
+        encoding: 'base32',
+        token: String(code),
+        window: 1,
+      });
+      if (!valid) throw new Error('Invalid verification code');
+    }
+    await pool.query(
+      'UPDATE profiles SET two_factor_secret = NULL, two_factor_enabled = false WHERE id = $1',
+      [req.user.id]
+    );
+    res.json({ data: { twoFactorEnabled: false }, error: null });
+  } catch (err) {
+    res.status(400).json({ data: null, error: { message: err.message } });
+  }
+});
+
+app.post('/api/auth/2fa/verify', async (req, res) => {
+  try {
+    const { email, tempToken, code, rememberMe } = req.body;
+    if (!email || !tempToken || !code) throw new Error('Email, token and code required');
+    const decoded = jwt.verify(tempToken, JWT_SECRET);
+    if (!decoded.twoFactorPending) throw new Error('Invalid token');
+    if (decoded.email !== email) throw new Error('Email mismatch');
+    const { rows } = await pool.query('SELECT * FROM profiles WHERE id = $1', [decoded.id]);
+    if (!rows.length) throw new Error('User not found');
+    if (!rows[0].two_factor_secret || !rows[0].two_factor_enabled) throw new Error('2FA not enabled');
+    const valid = speakeasy.totp.verify({
+      secret: rows[0].two_factor_secret,
+      encoding: 'base32',
+      token: String(code),
+      window: 1,
+    });
+    if (!valid) throw new Error('Invalid verification code');
+    await pool.query('UPDATE profiles SET last_sign_in_at = now() WHERE id = $1', [rows[0].id]);
+    const expiresIn = rememberMe ? '30d' : '1d';
+    const { user, accessToken, expires_in } = userRowToSession(rows[0], { expiresIn });
+    res.json({
+      data: {
+        user,
+        session: { access_token: accessToken, token_type: 'bearer', expires_in, expires_at: Date.now() + expires_in * 1000, user },
+      },
+      error: null,
+    });
   } catch (err) {
     res.status(400).json({ data: null, error: { message: err.message } });
   }
@@ -2509,6 +2699,53 @@ app.post('/api/schedule-delays/:id/reverse', requireAuth, requireAdmin, async (r
   } catch (err) {
     console.error('reverse delay error:', err);
     res.status(400).json({ data: null, error: { message: err.message } });
+  }
+});
+
+function icsDate(d) {
+  return new Date(d).toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+}
+
+function icsEscape(value) {
+  if (!value) return '';
+  return String(value)
+    .replace(/\\/g, '\\\\')
+    .replace(/;/g, '\\;')
+    .replace(/,/g, '\\,')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '');
+}
+
+app.get('/api/calendar/:token/feed.ics', async (req, res) => {
+  try {
+    const { token } = req.params;
+    const userRes = await pool.query('SELECT id FROM profiles WHERE calendar_sync_token = $1', [token]);
+    if (!userRes.rows.length) return res.status(404).send('Not found');
+    const userId = userRes.rows[0].id;
+    const { rows } = await pool.query(
+      `SELECT b.id, b.start_time, b.end_time, b.purpose, b.details, b.status, i.name AS instrument_name
+       FROM bookings b
+       JOIN instruments i ON i.id = b.instrument_id
+       WHERE b.user_id = $1 AND lower(b.status) NOT IN ('cancelled', 'denied')
+       ORDER BY b.start_time`,
+      [userId]
+    );
+
+    const events = rows.map(b => {
+      const summary = `Booking: ${icsEscape(b.instrument_name)}`;
+      const description = icsEscape(b.details ? `${b.purpose} - ${b.details}` : b.purpose);
+      const status = String(b.status || '').toLowerCase();
+      return `BEGIN:VEVENT\nUID:${b.id}@mass-spec-scheduler\nDTSTAMP:${icsDate(new Date())}\nDTSTART:${icsDate(b.start_time)}\nDTEND:${icsDate(b.end_time)}\nSUMMARY:${summary}\nDESCRIPTION:${description}\nSTATUS:${status === 'confirmed' ? 'CONFIRMED' : 'TENTATIVE'}\nEND:VEVENT`;
+    }).join('\n');
+
+    const feed = `BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//MSLab Scheduler//Mass Spec Scheduler//EN\nCALSCALE:GREGORIAN\nMETHOD:PUBLISH\n${events}\nEND:VCALENDAR`;
+
+    res.set('Content-Type', 'text/calendar; charset=utf-8');
+    res.set('Content-Disposition', 'attachment; filename="bookings.ics"');
+    res.send(feed);
+  } catch (err) {
+    console.error('Calendar feed error:', err);
+    res.status(500).send('Error generating calendar feed');
   }
 });
 
