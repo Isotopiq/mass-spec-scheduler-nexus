@@ -15,7 +15,21 @@ export default defineConfig({
   plugins: [react()],
   build: {
     rollupOptions: {
-      maxParallelFileOps: 5,
+      maxParallelFileOps: 3,
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('recharts')) return 'recharts';
+            if (id.includes('jspdf')) return 'jspdf';
+            if (id.includes('xlsx')) return 'xlsx';
+            if (id.includes('@univerjs')) return 'univer';
+            if (id.includes('html2canvas')) return 'html2canvas';
+            if (id.includes('date-fns')) return 'date-fns';
+            if (id.includes('react-day-picker')) return 'react-day-picker';
+            return 'vendor';
+          }
+        },
+      },
     },
   },
   resolve: {
