@@ -27,8 +27,7 @@ import {
 import { format } from "date-fns";
 import { Clock, User, FileText, CheckCircle, XCircle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { sendEmail, createStatusUpdateNotification } from "../../utils/emailNotifications";
-import { supabase } from "../../integrations/supabase/client";
+
 
 const PendingBookingsManagement: React.FC = () => {
   const { bookings, updateBooking } = useOptimizedBooking();
@@ -47,27 +46,6 @@ const PendingBookingsManagement: React.FC = () => {
     return filtered;
   }, [bookings]);
 
-  // Helper function to get user email by userId
-  const getUserEmailById = async (userId: string): Promise<string> => {
-    try {
-      const { data: userData, error } = await supabase
-        .from('profiles')
-        .select('email')
-        .eq('id', userId)
-        .single();
-      
-      if (error) {
-        console.error("Error fetching user email:", error);
-        return "";
-      }
-      
-      return userData?.email || "";
-    } catch (error) {
-      console.error("Error in getUserEmailById:", error);
-      return "";
-    }
-  };
-
   const handleApproveBooking = async (booking: any) => {
     setProcessingBooking(prev => ({ ...prev, [booking.id]: true }));
     
@@ -77,36 +55,7 @@ const PendingBookingsManagement: React.FC = () => {
         status: "confirmed"
       });
 
-      // Send approval email notification
-      try {
-        const userEmail = await getUserEmailById(booking.userId);
-        if (userEmail) {
-          console.log("Sending approval email to:", userEmail);
-          
-          const approvalNotification = createStatusUpdateNotification(
-            userEmail,
-            booking.userName,
-            booking.instrumentName,
-            booking.start,
-            booking.end,
-            "confirmed"
-          );
-          
-          // Add emailType parameter for proper email preference checking
-          const emailSent = await sendEmail({ ...approvalNotification, emailType: 'notification' });
-          
-          if (emailSent) {
-            console.log("Approval email sent successfully");
-          } else {
-            console.error("Failed to send approval email");
-          }
-        } else {
-          console.warn("No email found for user:", booking.userId);
-        }
-      } catch (emailError) {
-        console.error("Failed to send approval email:", emailError);
-      }
-
+      // Booking status-change emails are sent server-side by the REST update hook
       toast.success(`Booking for ${booking.instrumentName} approved`);
     } catch (error) {
       console.error("Failed to approve booking:", error);
@@ -125,36 +74,7 @@ const PendingBookingsManagement: React.FC = () => {
         status: "cancelled"
       });
 
-      // Send denial email notification
-      try {
-        const userEmail = await getUserEmailById(booking.userId);
-        if (userEmail) {
-          console.log("Sending denial email to:", userEmail);
-          
-          const denialNotification = createStatusUpdateNotification(
-            userEmail,
-            booking.userName,
-            booking.instrumentName,
-            booking.start,
-            booking.end,
-            "cancelled"
-          );
-          
-          // Add emailType parameter for proper email preference checking
-          const emailSent = await sendEmail({ ...denialNotification, emailType: 'notification' });
-          
-          if (emailSent) {
-            console.log("Denial email sent successfully");
-          } else {
-            console.error("Failed to send denial email");
-          }
-        } else {
-          console.warn("No email found for user:", booking.userId);
-        }
-      } catch (emailError) {
-        console.error("Failed to send denial email:", emailError);
-      }
-
+      // Booking status-change emails are sent server-side by the REST update hook
       toast.success(`Booking for ${booking.instrumentName} denied`);
     } catch (error) {
       console.error("Failed to deny booking:", error);

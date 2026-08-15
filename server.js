@@ -66,6 +66,8 @@ function sanitizeColumns(cols, table) {
   return safe.map(c => pgFormat('"%I"', c)).join(', ');
 }
 
+const ALLOWED_FILTER_OPS = new Set(['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'is', 'in', 'like', 'ilike']);
+
 function buildWhere(filters, table, user, action, values, paramStart = 1) {
   const conditions = [];
   const params = [];
@@ -73,42 +75,52 @@ function buildWhere(filters, table, user, action, values, paramStart = 1) {
 
   const addCondition = (op, col, val) => {
     const safeCol = sanitizeColumn(col);
-    if (!safeCol) return;
+    if (!safeCol) return false;
     switch (op) {
       case 'eq':
         conditions.push(pgFormat('"%I" = $%s', safeCol, paramIdx++));
         params.push(val);
-        break;
+        return true;
       case 'neq':
         conditions.push(pgFormat('"%I" != $%s', safeCol, paramIdx++));
         params.push(val);
-        break;
+        return true;
       case 'gt':
         conditions.push(pgFormat('"%I" > $%s', safeCol, paramIdx++));
         params.push(val);
-        break;
+        return true;
       case 'gte':
         conditions.push(pgFormat('"%I" >= $%s', safeCol, paramIdx++));
         params.push(val);
-        break;
+        return true;
       case 'lt':
         conditions.push(pgFormat('"%I" < $%s', safeCol, paramIdx++));
         params.push(val);
-        break;
+        return true;
       case 'lte':
         conditions.push(pgFormat('"%I" <= $%s', safeCol, paramIdx++));
         params.push(val);
-        break;
+        return true;
       case 'is':
         conditions.push(pgFormat('"%I" IS NULL', safeCol));
-        break;
+        return true;
       case 'in':
         if (Array.isArray(val) && val.length > 0) {
           conditions.push(pgFormat('"%I"::text = ANY($%s::text[])', safeCol, paramIdx++));
           params.push(val.map(v => String(v)));
+          return true;
         }
-        break;
+        return false;
+      case 'like':
+        conditions.push(pgFormat('"%I" LIKE $%s', safeCol, paramIdx++));
+        params.push(String(val));
+        return true;
+      case 'ilike':
+        conditions.push(pgFormat('"%I" ILIKE $%s', safeCol, paramIdx++));
+        params.push(String(val));
+        return true;
     }
+    return false;
   };
 
   // Authorization conditions
@@ -154,6 +166,12 @@ function buildWhere(filters, table, user, action, values, paramStart = 1) {
       params.push(user.id);
     }
   }
+  if (table === 'booking_templates' && (action === 'update' || action === 'delete' || action === 'select')) {
+    if (user.role !== 'admin') {
+      conditions.push(pgFormat('"user_id" = $%s', paramIdx++));
+      params.push(user.id);
+    }
+  }
   if (table === 'smtp_settings' && action === 'select') {
     if (user.role !== 'admin') {
       // non-admins cannot view SMTP credentials
@@ -162,11 +180,19 @@ function buildWhere(filters, table, user, action, values, paramStart = 1) {
   }
 
   for (const f of (filters || [])) {
-    if (Array.isArray(f)) {
-      // or/and not used
-      continue;
+    if (Array.isArray(f)) throw new Error('Nested filter arrays are not supported');
+    if (!f || typeof f !== 'object') throw new Error('Invalid filter');
+    if (!ALLOWED_FILTER_OPS.has(f.op)) {
+      throw new Error('Unknown filter op: ' + f.op);
     }
-    addCondition(f.op, f.column, f.value);
+    const added = addCondition(f.op, f.column, f.value);
+    if (!added) {
+      throw new Error('Filter could not be applied: ' + JSON.stringify(f));
+    }
+  }
+
+  if ((action === 'delete' || action === 'update') && filters && filters.length > 0 && conditions.length === 0) {
+    throw new Error('Delete/update requires valid filters');
   }
 
   return { where: conditions.length ? 'WHERE ' + conditions.join(' AND ') : '', params, paramIdx };
@@ -391,8 +417,50 @@ async function handleRestQuery(req, res) {
 
     authorizeAction(table, action, user);
 
-    // For insert/update on bookings, run value copy/horizon/overlap
     let safeValues = values ? sanitizeValues(values, table) : null;
+
+    // Prevent unfiltered updates/deletes that could wipe a table
+    if ((action === 'delete' || action === 'update') && (!filters || filters.length === 0)) {
+      throw new Error('Update/delete requires filters');
+    }
+
+    // Strip server-managed columns that should only be set by dedicated endpoints
+    const protectedColumnsByTable = {
+      bookings: ['sequence_file_key', 'sequence_file_name', 'sequence_file_size', 'sequence_file_uploaded_at'],
+    };
+    if (safeValues && (action === 'insert' || action === 'update')) {
+      for (const col of (protectedColumnsByTable[table] || [])) delete safeValues[col];
+    }
+
+    // Non-admins cannot change their own role
+    if (table === 'profiles' && action === 'update' && safeValues && user.role !== 'admin') {
+      delete safeValues.role;
+    }
+
+    // Enforce ownership on insert/update for user-scoped tables
+    if (safeValues && (action === 'insert' || action === 'update') && user.role !== 'admin') {
+      if ('user_id' in safeValues && safeValues.user_id !== user.id) {
+        throw new Error('Cannot set user_id for another user');
+      }
+    }
+
+    // Force user_id for tables owned by the current user
+    if (action === 'insert' && safeValues && user.role !== 'admin') {
+      if (['bookings', 'comments', 'booking_waitlist', 'booking_templates', 'email_digests'].includes(table)) {
+        safeValues.user_id = user.id;
+      }
+    }
+
+    // Booking status restrictions for non-admins
+    if (table === 'bookings' && safeValues && (action === 'insert' || action === 'update') && user.role !== 'admin') {
+      const allowedUserStatuses = ['pending', 'cancelled'];
+      if (safeValues.status && !allowedUserStatuses.includes(String(safeValues.status).toLowerCase())) {
+        throw new Error('Users can only set booking status to pending or cancelled');
+      }
+      if (action === 'insert' && !safeValues.status) safeValues.status = 'pending';
+    }
+
+    // For insert/update on bookings, run value copy/horizon/overlap
     if (table === 'bookings' && safeValues && (action === 'insert' || action === 'update')) {
       await enforceBookingRules(action, safeValues, table, filters, user);
     }
@@ -401,8 +469,17 @@ async function handleRestQuery(req, res) {
       await validateMaintenanceEvent(action, safeValues, filters);
     }
 
-    if (table === 'comments' && action === 'insert' && safeValues && user.role !== 'admin') {
-      safeValues.user_id = user.id;
+    if (table === 'comments' && action === 'insert' && safeValues) {
+      if (user.role !== 'admin') {
+        safeValues.user_id = user.id;
+        const bookingId = safeValues.booking_id;
+        if (bookingId) {
+          const { rows: ownerRows } = await pool.query('SELECT user_id FROM bookings WHERE id = $1', [bookingId]);
+          if (ownerRows.length && ownerRows[0].user_id !== user.id) {
+            throw new Error('You can only comment on your own bookings');
+          }
+        }
+      }
     }
 
     if (table === 'booking_waitlist' && action === 'insert' && safeValues && user.role !== 'admin') {
@@ -508,7 +585,13 @@ async function handleRestQuery(req, res) {
     if (table === 'bookings' && action === 'update') {
       for (const b of rows) {
         const prev = preUpdateBookings.find(p => p.id === b.id);
-        sendBookingStatusNotifications(b, prev?.status);
+        if (prev) {
+          sendBookingStatusNotifications(b, prev.status);
+          if (['cancelled', 'denied'].includes(String(b.status || '').toLowerCase()) &&
+              !['cancelled', 'denied'].includes(String(prev.status || '').toLowerCase())) {
+            autoFillWaitlist(prev.instrument_id, prev.start_time, prev.end_time);
+          }
+        }
       }
     }
 
@@ -707,13 +790,14 @@ function deriveSiteUrl(req) {
 
 async function getLogoAndSiteUrl(req) {
   const settings = await getSettings();
+  const siteName = settings?.site_name || process.env.SITE_NAME || 'MSLab Scheduler';
   const siteUrl = settings?.site_url || process.env.SITE_URL || deriveSiteUrl(req) || `http://localhost:${PORT || 3000}`;
   const defaultLogo = `${siteUrl.replace(/\/$/, '')}/site-assets/40965317-613a-41b7-bc11-d9e8b6cba9ae.png`;
   let logoUrl = settings?.logo_url || settings?.favicon_url || defaultLogo;
   if (logoUrl && logoUrl.startsWith('/') && !logoUrl.startsWith('//')) {
     logoUrl = `${siteUrl.replace(/\/$/, '')}${logoUrl}`;
   }
-  return { logoUrl, siteUrl };
+  return { logoUrl, siteUrl, siteName };
 }
 
 function getLocalLogoPath(logoUrl) {
@@ -766,27 +850,28 @@ function substituteVars(text, vars) {
   return result;
 }
 
-function buildLogoHeader(logoUrl, siteUrl) {
+function buildLogoHeader(logoUrl, siteUrl, siteName = 'MSLab Scheduler') {
   if (!logoUrl) return '';
   return `
     <tr>
       <td style="background:#ffffff;padding:24px 0;text-align:center;border-bottom:1px solid #e5e7eb;">
         <a href="${siteUrl || '#'}" target="_blank" style="display:inline-block;">
-          <img src="${logoUrl}" alt="MSLab Scheduler" style="max-height:64px;max-width:180px;border:0;display:block;margin:0 auto;height:auto;width:auto;">
+          <img src="${logoUrl}" alt="${siteName}" style="max-height:64px;max-width:180px;border:0;display:block;margin:0 auto;height:auto;width:auto;">
         </a>
       </td>
     </tr>`;
 }
 
-function buildEmailHtml({ logoUrl, siteUrl, title, content, footerText }) {
-  const logoSection = logoUrl ? buildLogoHeader(logoUrl, siteUrl) : '';
-  const footer = footerText || `<a href="${siteUrl || '#'}" style="color:#4f46e5;text-decoration:none;font-weight:500;">MSLab Scheduler</a>`;
+function buildEmailHtml({ logoUrl, siteUrl, siteName, title, content, footerText }) {
+  const appName = siteName || 'MSLab Scheduler';
+  const logoSection = logoUrl ? buildLogoHeader(logoUrl, siteUrl, appName) : '';
+  const footer = footerText || `<a href="${siteUrl || '#'}" style="color:#4f46e5;text-decoration:none;font-weight:500;">${appName}</a>`;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title ? title.replace(/</g, '&lt;') : 'MSLab Scheduler'}</title>
+  <title>${title ? title.replace(/</g, '&lt;') : appName}</title>
 </head>
 <body style="margin:0;padding:0;background-color:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;">
   <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
@@ -924,7 +1009,7 @@ async function sendEmailDigest(userId, frequency) {
       subject: frequency === 'weekly' ? 'Weekly Lab Digest' : 'Daily Lab Digest',
       htmlContent: `
         <h1 style="color:#111827;font-size:24px;margin:0 0 16px;">Hello {{userName}},</h1>
-        <p style="color:#4b5563;font-size:16px;line-height:1.6;margin:0 0 16px;">Here are your recent notifications from MSLab Scheduler:</p>
+        <p style="color:#4b5563;font-size:16px;line-height:1.6;margin:0 0 16px;">Here are your recent notifications from {{siteName}}:</p>
         <ul style="margin:0 0 24px;padding-left:20px;">{{notifications}}</ul>
         <p style="text-align:center;margin:24px 0 0;">
           <a href="{{siteUrl}}" style="display:inline-block;background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#ffffff;padding:14px 28px;border-radius:6px;text-decoration:none;font-weight:600;">View Dashboard</a>
@@ -945,10 +1030,10 @@ async function sendEmailWithTemplate({ to, subject, htmlContent, templateType, v
   if (!settings) throw new Error('SMTP not configured. Go to Admin → SMTP and save your mail server settings before sending test emails.');
   global.smtpSettingsCache = settings;
 
-  const { logoUrl: publicLogoUrl, siteUrl } = await getLogoAndSiteUrl(req);
+  const { logoUrl: publicLogoUrl, siteUrl, siteName } = await getLogoAndSiteUrl(req);
   const logoAttachment = await resolveLogoAttachment(publicLogoUrl);
   const logoUrl = logoAttachment ? 'cid:logo' : publicLogoUrl;
-  const appName = 'MSLab Scheduler';
+  const appName = siteName;
   const vars = {
     ...(variables || {}),
     logoUrl,
@@ -960,6 +1045,7 @@ async function sendEmailWithTemplate({ to, subject, htmlContent, templateType, v
   };
   if (!vars.userName) vars.userName = 'there';
   if (!vars.title) vars.title = subject || appName;
+  if (!vars.sentAt) vars.sentAt = new Date().toLocaleString();
 
   let body = htmlContent || '';
   if (templateType) {
@@ -984,11 +1070,11 @@ async function sendEmailWithTemplate({ to, subject, htmlContent, templateType, v
     // Full templates already include the logo via {{logoUrl}}. If they do not, inject a logo header.
     // Pre-built htmlContent (e.g. test email preview) already contains a logo, so skip injection there.
     if (logoUrl && !body.includes(logoUrl) && templateType) {
-      const injected = `<div style="text-align:center;padding:24px 0;border-bottom:1px solid #e5e7eb;"><a href="${siteUrl || '#'}" target="_blank" style="display:inline-block;"><img src="${logoUrl}" alt="MSLab Scheduler" style="max-height:64px;max-width:180px;border:0;display:block;margin:0 auto;height:auto;width:auto;"></a></div>`;
+      const injected = `<div style="text-align:center;padding:24px 0;border-bottom:1px solid #e5e7eb;"><a href="${siteUrl || '#'}" target="_blank" style="display:inline-block;"><img src="${logoUrl}" alt="${appName}" style="max-height:64px;max-width:180px;border:0;display:block;margin:0 auto;height:auto;width:auto;"></a></div>`;
       body = body.replace(/<body([^>]*)>/i, `<body$1>${injected}`);
     }
   } else {
-    body = buildEmailHtml({ logoUrl, siteUrl, title: subject, content: body });
+    body = buildEmailHtml({ logoUrl, siteUrl, siteName: appName, title: subject, content: body });
   }
 
   console.log('sendEmailWithTemplate:', { to, subject, templateType, bodyLength: body.length, logoUrl, siteUrl });
@@ -1398,6 +1484,24 @@ async function autoFillWaitlist(instrumentId, startTime, endTime) {
 
     const filled = [];
     for (const w of rows) {
+      const instanceValues = {
+        user_id: w.user_id,
+        instrument_id: w.instrument_id,
+        start_time: w.start_time,
+        end_time: w.end_time,
+        purpose: w.purpose || 'Waitlist auto-fill',
+        details: w.details,
+        status: 'confirmed'
+      };
+
+      // Enforce horizon, quota, and overlap rules before auto-filling
+      try {
+        await enforceBookingRules('insert', instanceValues, 'bookings', [], { id: w.user_id, role: 'user' });
+      } catch (e) {
+        console.log('Waitlist auto-fill skipped: booking rules check failed -', e.message);
+        continue;
+      }
+
       // Check that this waiting slot is still free before converting
       const overlap = await pool.query(
         `SELECT 1 FROM bookings
@@ -1412,7 +1516,7 @@ async function autoFillWaitlist(instrumentId, startTime, endTime) {
       const newBookingResult = await pool.query(
         `INSERT INTO bookings (user_id, instrument_id, start_time, end_time, purpose, details, status)
          VALUES ($1, $2, $3, $4, $5, $6, 'confirmed') RETURNING *`,
-        [w.user_id, w.instrument_id, w.start_time, w.end_time, w.purpose || 'Waitlist auto-fill', w.details]
+        [instanceValues.user_id, instanceValues.instrument_id, instanceValues.start_time, instanceValues.end_time, instanceValues.purpose, instanceValues.details]
       );
       const newBooking = newBookingResult.rows[0];
 
@@ -1768,6 +1872,10 @@ app.get('/api/storage/public-url', (req, res) => {
 app.post('/api/functions/send-email', requireAuth, async (req, res) => {
   try {
     const { to, subject, htmlContent, templateType, variables } = req.body;
+    if (!to) throw new Error('Recipient email required');
+    if (req.user.role !== 'admin' && to !== req.user.email) {
+      throw new Error('You can only send email to your own address');
+    }
     await sendEmailWithTemplate({ to, subject, htmlContent, templateType, variables }, req);
     res.json({ data: { success: true }, error: null });
   } catch (err) {
@@ -1880,6 +1988,17 @@ async function deleteSequenceFileLocal(key) {
   if (fs.existsSync(target)) fs.unlinkSync(target);
 }
 
+function assertSequenceFileOwnership(bookingId, key, settings) {
+  if (!key || !bookingId) return;
+  const normalized = String(key).replace(/\\/g, '/');
+  const localPrefix = `sequences/${bookingId}/`;
+  if (normalized.startsWith(localPrefix)) return;
+  const prefix = (settings?.pathPrefix || 'lcms-sequences/').replace(/\/$/, '') + '/';
+  const s3Prefix = `${prefix}${bookingId}/`;
+  if (normalized.startsWith(s3Prefix)) return;
+  throw new Error('Sequence file does not belong to this booking');
+}
+
 app.get('/api/admin/s3-settings', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -1988,6 +2107,7 @@ app.get('/api/functions/s3-download-sequence', requireAuth, async (req, res) => 
     const info = await getBookingSequenceFile(bookingId);
     if (!info || !info.sequence_file_key) throw new Error('No sequence file for this booking');
     const settings = await getS3Settings();
+    assertSequenceFileOwnership(bookingId, info.sequence_file_key, settings);
     if (settings.provider === 'local') {
       const localKey = String(info.sequence_file_key).replace(/\\/g, '/');
       if (localKey.includes('..') || localKey.startsWith('/')) throw new Error('Invalid file key');
@@ -2013,6 +2133,7 @@ app.post('/api/functions/s3-delete-sequence', requireAuth, async (req, res) => {
     const info = await getBookingSequenceFile(bookingId);
     const settings = await getS3Settings();
     if (info && info.sequence_file_key) {
+      assertSequenceFileOwnership(bookingId, info.sequence_file_key, settings);
       if (settings.provider === 'local') await deleteSequenceFileLocal(info.sequence_file_key);
       else {
         const s3 = await getS3Client();
@@ -2037,6 +2158,7 @@ app.post('/api/functions/s3-replace-sequence', requireAuth, upload.single('file'
     const safeName = sanitizeFileName(req.file.originalname);
     const old = await getBookingSequenceFile(bookingId);
     if (old && old.sequence_file_key) {
+      assertSequenceFileOwnership(bookingId, old.sequence_file_key, settings);
       if (settings.provider === 'local') await deleteSequenceFileLocal(old.sequence_file_key);
       else {
         const s3 = await getS3Client();
@@ -2170,6 +2292,7 @@ app.post('/api/bookings/recurring', requireAuth, async (req, res) => {
     const firstEnd = new Date(endTime);
     const durationMs = firstEnd.getTime() - firstStart.getTime();
 
+    const status = req.user.role === 'admin' ? 'confirmed' : 'pending';
     let parentId = null;
     for (let i = 0; i < weeks; i++) {
       const s = new Date(firstStart.getTime() + i * 7 * 24 * 60 * 60 * 1000);
@@ -2184,13 +2307,13 @@ app.post('/api/bookings/recurring', requireAuth, async (req, res) => {
           end_time: instEnd,
           purpose: purpose || 'Recurring booking',
           details,
-          status: 'confirmed'
+          status
         };
         await enforceBookingRules('insert', instanceValues, 'bookings', [], req.user);
         const { rows } = await pool.query(
           `INSERT INTO bookings (user_id, instrument_id, start_time, end_time, purpose, details, status, recurrence_rule, parent_booking_id)
-           VALUES ($1, $2, $3, $4, $5, $6, 'confirmed', $7, $8) RETURNING *`,
-          [req.user.id, instrumentId, instStart, instEnd, purpose || 'Recurring booking', details, `weekly:${weeks}`, parentId]
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+          [req.user.id, instrumentId, instStart, instEnd, purpose || 'Recurring booking', details, status, `weekly:${weeks}`, parentId]
         );
         created.push(rows[0]);
         if (!parentId) parentId = rows[0].id;

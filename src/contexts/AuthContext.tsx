@@ -259,9 +259,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const json = await res.json();
     if (!res.ok || json.error) throw new Error(json.error?.message || 'User creation failed');
 
-    if (json.data?.user) {
-      setTimeout(() => sendWelcomeEmail(userData.email, userData.name), 2000);
-    }
     if (!userData.password && json.data?.generatedPassword) {
       toast.success(`User created. Temporary password: ${json.data.generatedPassword}`);
     }

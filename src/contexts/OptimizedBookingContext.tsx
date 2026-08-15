@@ -3,7 +3,7 @@ import { Instrument, Booking, BookingStatistics, Comment } from "../types";
 import { useAuth } from "./AuthContext";
 import { toast } from "sonner";
 import { supabase } from "../integrations/supabase/client";
-import { sendEmail, createBookingNotification, createStatusUpdateNotification, createCommentNotification } from "../utils/emailNotifications";
+import { sendEmail, createBookingNotification, createCommentNotification } from "../utils/emailNotifications";
 
 interface OptimizedBookingContextType {
   bookings: Booking[];
@@ -340,41 +340,12 @@ export const OptimizedBookingProvider: React.FC<{ children: React.ReactNode }> =
         booking.id === bookingData.id ? bookingData : booking
       ));
 
-      // Send email notification if status changed
-      if (originalBooking && originalBooking.status !== bookingData.status) {
-        try {
-          const userEmail = await getUserEmailById(bookingData.userId);
-          if (userEmail) {
-            console.log("Sending status update email to:", userEmail);
-            const notification = createStatusUpdateNotification(
-              userEmail,
-              bookingData.userName,
-              bookingData.instrumentName,
-              bookingData.start,
-              bookingData.end,
-              bookingData.status
-            );
-            
-            // Add emailType parameter for proper email preference checking
-            const emailSent = await sendEmail({ ...notification, emailType: 'notification' });
-            
-            if (emailSent) {
-              console.log("Status update email notification sent successfully");
-            } else {
-              console.error("Failed to send status update email");
-            }
-          } else {
-            console.warn("No email found for user:", bookingData.userId);
-          }
-        } catch (emailError) {
-          console.error("Failed to send status update email:", emailError);
-        }
-      }
+      // Status-change emails are handled server-side by the REST update hook to avoid duplicates
     } catch (error) {
       console.error('Error updating booking:', error);
       throw error;
     }
-  }, [bookings, getUserEmailById]);
+  }, [bookings]);
 
   const deleteBooking = useCallback(async (bookingId: string) => {
     try {
