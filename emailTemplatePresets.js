@@ -178,6 +178,14 @@ function welcomeContent() {
     + cardCta({ url: '{{siteUrl}}', text: 'Start Exploring' });
 }
 
+function accountCreatedContent() {
+  return cardHero({ label: 'Account created', title: 'Your account has been created', description: 'An administrator has created an account for you on MSLab Scheduler.' })
+    + cardGreeting()
+    + cardDetailCard({ title: 'Login details', rowsHtml: detailRow('Email', '{{userEmail}}') + detailRow('Temporary password', '{{temporaryPassword}}') })
+    + cardNote('Please sign in and change your temporary password from your profile page.')
+    + cardCta({ url: '{{siteUrl}}/login', text: 'Sign In' });
+}
+
 function bookingConfirmationContent() {
   return cardContent({
     label: 'Booking confirmation',
@@ -351,6 +359,7 @@ function smtpTestContent() {
 
 export const cardTemplates = {
   welcome: { subject: 'Welcome to MSLab Scheduler, {{userName}}!', html: cardShell({ title: 'Welcome', content: welcomeContent() }) },
+  account_created: { subject: 'Your MSLab Scheduler account has been created', html: cardShell({ title: 'Account Created', content: accountCreatedContent() }) },
   booking_confirmation: { subject: 'Booking Confirmation: {{instrumentName}}', html: cardShell({ title: 'Booking Confirmation', content: bookingConfirmationContent() }) },
   booking_update: { subject: 'Booking Update: {{instrumentName}}', html: cardShell({ title: 'Booking Update', content: bookingUpdateContent() }) },
   booking_approved: { subject: 'Booking Approved: {{instrumentName}}', html: cardShell({ title: 'Booking Approved', content: bookingApprovedContent() }) },

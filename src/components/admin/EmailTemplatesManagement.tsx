@@ -48,7 +48,50 @@ const EmailTemplatesManagement: React.FC = () => {
       setHasChanges(false);
     } else {
       // Set default HTML templates if none exist
-      if (activeTemplate === "welcome") {
+      if (activeTemplate === "account_created") {
+        setFormData({
+          subject: "Your MSLab Scheduler account has been created",
+          htmlContent: `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Account Created</title>
+  <style>
+    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; background-color: #f5f5f5; margin: 0; padding: 0; }
+    .container { max-width: 600px; margin: 0 auto; background-color: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 40px 20px; text-align: center; }
+    .header h1 { margin: 0; font-size: 28px; font-weight: 300; }
+    .content { padding: 40px 30px; }
+    .details-box { background-color: #f8fafc; padding: 25px; border-radius: 8px; margin: 25px 0; border-left: 4px solid #667eea; }
+    .cta-button { display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 25px; margin: 20px 0; font-weight: bold; }
+    .footer { background-color: #f8fafc; padding: 30px; text-align: center; border-top: 1px solid #e5e7eb; color: #666; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Your account has been created</h1>
+    </div>
+    <div class="content">
+      <p>Hello {{userName}},</p>
+      <p>An administrator has created an account for you on MSLab Scheduler. You can sign in with the details below.</p>
+      <div class="details-box">
+        <p><strong>Email:</strong> {{userEmail}}</p>
+        <p><strong>Temporary password:</strong> {{temporaryPassword}}</p>
+      </div>
+      <div style="text-align: center; margin: 30px 0;">
+        <a href="{{siteUrl}}/login" class="cta-button">Sign In</a>
+      </div>
+      <p style="color: #666; font-size: 14px;">Please sign in and change your temporary password from your profile page.</p>
+    </div>
+    <div class="footer">
+      <p><strong>MSLab Scheduler</strong></p>
+    </div>
+  </div>
+</body>
+</html>`
+        });
+      } else if (activeTemplate === "welcome") {
         setFormData({
           subject: "Welcome to Lab Management System, {{userName}}!",
           htmlContent: `<!DOCTYPE html>
@@ -414,6 +457,8 @@ const EmailTemplatesManagement: React.FC = () => {
       "{{notifications}}": `<li style="margin-bottom:8px;color:#4b5563;"><strong style="color:#111827;">Booking confirmed</strong> — Your booking is approved.</li><li style="margin-bottom:8px;color:#4b5563;"><strong style="color:#111827;">Comment added</strong> — A new comment was added.</li>`,
       "{{resetUrl}}": `${siteUrl}/reset-password?token=sample-token`,
       "{{sentAt}}": new Date().toLocaleString(),
+      "{{userEmail}}": "newuser@example.com",
+      "{{temporaryPassword}}": "TempPass123!",
       "{{logoUrl}}": logoUrl,
       "{{siteUrl}}": siteUrl,
       "{{title}}": formData.subject || "Email preview",
@@ -532,6 +577,8 @@ const EmailTemplatesManagement: React.FC = () => {
       "{{notifications}}": `<li style="margin-bottom:8px;color:#4b5563;"><strong style="color:#111827;">Booking confirmed</strong> — Your booking is approved.</li><li style="margin-bottom:8px;color:#4b5563;"><strong style="color:#111827;">Comment added</strong> — A new comment was added.</li>`,
       "{{resetUrl}}": `${siteUrl}/reset-password?token=sample-token`,
       "{{sentAt}}": new Date().toLocaleString(),
+      "{{userEmail}}": "newuser@example.com",
+      "{{temporaryPassword}}": "TempPass123!",
       "{{logoUrl}}": logoUrl,
       "{{siteUrl}}": siteUrl,
       "{{title}}": formData.subject || "Email preview",
@@ -580,6 +627,7 @@ const EmailTemplatesManagement: React.FC = () => {
 
   const availableVariables: Record<string, string[]> = {
     welcome: ["{{userName}}", "{{logoUrl}}", "{{siteUrl}}"],
+    account_created: ["{{userName}}", "{{userEmail}}", "{{temporaryPassword}}", "{{logoUrl}}", "{{siteUrl}}"],
     booking_confirmation: ["{{userName}}", "{{instrumentName}}", "{{startDate}}", "{{endDate}}", "{{status}}", "{{logoUrl}}", "{{siteUrl}}"],
     booking_update: ["{{userName}}", "{{instrumentName}}", "{{startDate}}", "{{endDate}}", "{{status}}", "{{logoUrl}}", "{{siteUrl}}"],
     booking_approved: ["{{userName}}", "{{instrumentName}}", "{{startDate}}", "{{endDate}}", "{{status}}", "{{logoUrl}}", "{{siteUrl}}"],
@@ -638,6 +686,7 @@ const EmailTemplatesManagement: React.FC = () => {
         <Tabs value={activeTemplate} onValueChange={setActiveTemplate}>
           <TabsList className="flex flex-wrap h-auto">
             <TabsTrigger value="welcome">Welcome</TabsTrigger>
+            <TabsTrigger value="account_created">Account Created</TabsTrigger>
             <TabsTrigger value="booking_confirmation">Booking Confirmation</TabsTrigger>
             <TabsTrigger value="booking_update">Booking Update</TabsTrigger>
             <TabsTrigger value="booking_approved">Booking Approved</TabsTrigger>

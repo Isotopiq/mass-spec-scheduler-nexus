@@ -44,6 +44,23 @@ function shell({ title, content }) {
 }
 
 const modernTemplates = {
+  account_created: {
+    subject: 'Your MSLab Scheduler account has been created',
+    html: shell({
+      title: 'Account Created',
+      content: `<h1 style="color:#111827;font-size:24px;margin:0 0 16px;">Your account has been created</h1>
+<p style="color:#4b5563;font-size:16px;line-height:1.6;margin:0 0 16px;">Dear {{userName}},</p>
+<p style="color:#4b5563;font-size:16px;line-height:1.6;margin:0 0 24px;">An administrator has created an account for you on MSLab Scheduler. You can sign in with the details below.</p>
+<div style="background:#f0fdf4;border-left:4px solid #10b981;padding:16px;margin:16px 0;border-radius:6px;">
+  <p style="margin:0 0 8px;color:#4b5563;"><strong>Email:</strong> {{userEmail}}</p>
+  <p style="margin:0;color:#4b5563;"><strong>Temporary password:</strong> {{temporaryPassword}}</p>
+</div>
+<p style="color:#4b5563;font-size:14px;line-height:1.5;">Please sign in and change your temporary password from your profile page.</p>
+<p style="text-align:center;margin:24px 0 0;">
+  <a href="{{siteUrl}}/login" style="display:inline-block;background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#ffffff;padding:14px 28px;border-radius:6px;text-decoration:none;font-weight:600;">Sign In</a>
+</p>`
+    })
+  },
   welcome: {
     subject: 'Welcome to MSLab Scheduler, {{userName}}!',
     html: shell({

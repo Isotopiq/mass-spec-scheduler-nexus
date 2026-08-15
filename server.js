@@ -1189,6 +1189,22 @@ app.post('/api/auth/admin-create-user', requireAuth, requireAdmin, async (req, r
       [email, name, role || 'user', department || null, hash]
     );
     const { user } = userRowToSession(rows[0]);
+
+    // Send account creation email in the background; don't fail user creation if SMTP is not ready
+    try {
+      await sendEmailWithTemplate({
+        to: email,
+        templateType: 'account_created',
+        variables: {
+          userName: name,
+          userEmail: email,
+          temporaryPassword: pwd
+        }
+      });
+    } catch (emailErr) {
+      console.error('Account creation email failed:', emailErr.message);
+    }
+
     res.json({ data: { user, generatedPassword: password ? undefined : pwd }, error: null });
   } catch (err) {
     res.status(400).json({ data: null, error: { message: err.message } });
