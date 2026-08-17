@@ -5,6 +5,7 @@ export interface ReleaseSettings {
   booking_release_window_days?: number;
   booking_release_time?: string;
   booking_release_day_of_week?: number | null;
+  booking_release_timezone?: string | null;
   max_booking_days_ahead?: number;
 }
 
@@ -15,25 +16,78 @@ function parseTime(timeValue?: string | null) {
   return { hours: Number(m[1]), minutes: Number(m[2]) };
 }
 
-function getPreviousReleaseTime(now: Date, dayOfWeek: number | null | undefined, timeValue?: string | null) {
-  const { hours, minutes } = parseTime(timeValue);
-  const candidate = new Date(now);
-  candidate.setSeconds(0, 0);
-  candidate.setMinutes(minutes);
-  candidate.setHours(hours);
+const formatterCache = new Map<string, Intl.DateTimeFormat>();
+const dayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
 
-  if (typeof dayOfWeek === 'number' && !Number.isNaN(dayOfWeek)) {
-    const currentDay = candidate.getDay();
-    const diff = (currentDay - dayOfWeek + 7) % 7;
-    candidate.setDate(candidate.getDate() - diff);
+function getZonedParts(date: Date, timeZone?: string | null) {
+  const tz = timeZone || "UTC";
+  let formatter = formatterCache.get(tz);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+      hour: "numeric",
+      minute: "numeric",
+      second: "numeric",
+      weekday: "short",
+      hourCycle: "h23",
+    });
+    formatterCache.set(tz, formatter);
   }
+  const parts = formatter.formatToParts(date);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value;
+  return {
+    year: Number(get("year")),
+    month: Number(get("month")),
+    day: Number(get("day")),
+    hour: Number(get("hour")),
+    minute: Number(get("minute")),
+    second: Number(get("second")),
+    weekday: dayMap[get("weekday") || ""] ?? 0,
+  };
+}
 
+function getUtcForParts(
+  parts: { year: number; month: number; day: number; hour: number; minute: number; second?: number },
+  timeZone?: string | null
+) {
+  const tz = timeZone || "UTC";
+  let utc = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second || 0);
+  for (let i = 0; i < 12; i++) {
+    const local = getZonedParts(new Date(utc), tz);
+    const diff =
+      Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second || 0) -
+      Date.UTC(local.year, local.month - 1, local.day, local.hour, local.minute, local.second || 0);
+    if (Math.abs(diff) < 1000) break;
+    utc += diff;
+  }
+  return new Date(utc);
+}
+
+function getPreviousReleaseTime(
+  now: Date,
+  dayOfWeek: number | null | undefined,
+  timeValue?: string | null,
+  timeZone?: string | null
+) {
+  const { hours, minutes } = parseTime(timeValue);
+  const localNow = getZonedParts(now, timeZone);
+  const parts = { ...localNow, hour: hours, minute: minutes, second: 0 };
+  if (typeof dayOfWeek === "number" && !Number.isNaN(dayOfWeek)) {
+    const diff = (parts.weekday - dayOfWeek + 7) % 7;
+    parts.day -= diff;
+    parts.weekday = dayOfWeek;
+  }
+  let candidate = getUtcForParts(parts, timeZone);
   if (candidate > now) {
-    if (typeof dayOfWeek === 'number' && !Number.isNaN(dayOfWeek)) {
-      candidate.setDate(candidate.getDate() - 7);
+    if (typeof dayOfWeek === "number" && !Number.isNaN(dayOfWeek)) {
+      parts.day -= 7;
     } else {
-      candidate.setDate(candidate.getDate() - 1);
+      parts.day -= 1;
     }
+    candidate = getUtcForParts(parts, timeZone);
   }
   return candidate;
 }
@@ -44,16 +98,21 @@ export function getBookingWindowEnd(
 ): Date | null {
   if (!settings) return null;
 
-  if (settings.booking_release_enabled && (settings.booking_release_window_days || 0) > 0) {
+  const releaseEnabled = settings.booking_release_enabled;
+  const windowDays = settings.booking_release_window_days || 0;
+  if (releaseEnabled && windowDays > 0) {
     const lastRelease = getPreviousReleaseTime(
       now,
       settings.booking_release_day_of_week,
-      settings.booking_release_time
+      settings.booking_release_time,
+      settings.booking_release_timezone
     );
-    const end = new Date(lastRelease);
-    end.setDate(end.getDate() + Number(settings.booking_release_window_days));
-    end.setHours(23, 59, 59, 999);
-    return end;
+    const endParts = getZonedParts(lastRelease, settings.booking_release_timezone);
+    endParts.day += Number(windowDays);
+    endParts.hour = 23;
+    endParts.minute = 59;
+    endParts.second = 59;
+    return getUtcForParts(endParts, settings.booking_release_timezone);
   }
 
   const maxDays = settings.max_booking_days_ahead ?? 0;
@@ -65,7 +124,7 @@ export function getBookingWindowEnd(
 }
 
 export function formatReleaseDay(day: number | null | undefined): string {
-  if (day === null || day === undefined) return 'Daily';
-  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  return days[day] ?? 'Daily';
+  if (day === null || day === undefined) return "Daily";
+  const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  return days[day] ?? "Daily";
 }

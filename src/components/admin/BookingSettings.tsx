@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
@@ -22,7 +22,30 @@ const BookingSettings: React.FC = () => {
   const [releaseTime, setReleaseTime] = useState("09:00");
   const [releaseFrequency, setReleaseFrequency] = useState<Frequency>('weekly');
   const [releaseDayOfWeek, setReleaseDayOfWeek] = useState(1);
+  const [releaseTimezone, setReleaseTimezone] = useState("UTC");
   const [saving, setSaving] = useState(false);
+
+  const timezones = useMemo(() => {
+    try {
+      if (typeof Intl !== "undefined" && "supportedValuesOf" in Intl) {
+        return (Intl as any).supportedValuesOf("timeZone");
+      }
+    } catch { /* ignore */ }
+    return [
+      "UTC",
+      "America/Los_Angeles",
+      "America/New_York",
+      "America/Chicago",
+      "America/Denver",
+      "Europe/London",
+      "Europe/Paris",
+      "Europe/Berlin",
+      "Asia/Tokyo",
+      "Asia/Shanghai",
+      "Australia/Sydney",
+      "Pacific/Auckland",
+    ];
+  }, []);
 
   useEffect(() => {
     if (settings) {
@@ -31,6 +54,7 @@ const BookingSettings: React.FC = () => {
       setReleaseEnabled(settings.booking_release_enabled ?? false);
       setReleaseWindowDays(settings.booking_release_window_days ?? 14);
       setReleaseTime(String(settings.booking_release_time || "09:00").slice(0, 5));
+      setReleaseTimezone(settings.booking_release_timezone || "UTC");
       if (settings.booking_release_day_of_week === null || settings.booking_release_day_of_week === undefined) {
         setReleaseFrequency('daily');
       } else {
@@ -51,6 +75,7 @@ const BookingSettings: React.FC = () => {
       booking_release_window_days: releaseWindowDays,
       booking_release_time: releaseTime,
       booking_release_day_of_week: releaseFrequency === 'daily' ? null : releaseDayOfWeek,
+      booking_release_timezone: releaseTimezone || "UTC",
       updated_at: new Date().toISOString(),
     };
     const { error } = await supabase
@@ -172,7 +197,7 @@ const BookingSettings: React.FC = () => {
                 )}
 
                 <div className="space-y-2">
-                  <Label htmlFor="releaseTime">Release time (UTC)</Label>
+                  <Label htmlFor="releaseTime">Release time</Label>
                   <Input
                     id="releaseTime"
                     type="time"
@@ -180,8 +205,22 @@ const BookingSettings: React.FC = () => {
                     onChange={(e) => setReleaseTime(e.target.value)}
                     required
                   />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="releaseTimezone">Release timezone</Label>
+                  <Select value={releaseTimezone} onValueChange={setReleaseTimezone}>
+                    <SelectTrigger id="releaseTimezone">
+                      <SelectValue placeholder="Select timezone" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-60 overflow-y-auto">
+                      {timezones.map((tz) => (
+                        <SelectItem key={tz} value={tz}>{tz}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <p className="text-sm text-muted-foreground">
-                    At this time, the next {releaseWindowDays} day window becomes bookable.
+                    At this time in the selected timezone, the next {releaseWindowDays} day window becomes bookable.
                   </p>
                 </div>
               </div>

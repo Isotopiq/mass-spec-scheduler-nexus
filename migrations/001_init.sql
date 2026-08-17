@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS app_settings (
   booking_release_window_days INTEGER NOT NULL DEFAULT 14,
   booking_release_time TIME NOT NULL DEFAULT '09:00:00',
   booking_release_day_of_week INTEGER,
+  booking_release_timezone TEXT NOT NULL DEFAULT 'UTC',
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -146,8 +147,8 @@ CREATE INDEX IF NOT EXISTS idx_schedule_delay_bookings_delay_id ON schedule_dela
 CREATE INDEX IF NOT EXISTS idx_profiles_email ON profiles(email);
 
 -- Seed singleton app settings
-INSERT INTO app_settings (id, s3_uploads_enabled, s3_path_prefix, max_booking_days_ahead, booking_release_enabled, booking_release_window_days, booking_release_time, booking_release_day_of_week)
-VALUES ('00000000-0000-0000-0000-000000000001', false, 'lcms-sequences/', 365, false, 14, '09:00:00', 1)
+INSERT INTO app_settings (id, s3_uploads_enabled, s3_path_prefix, max_booking_days_ahead, booking_release_enabled, booking_release_window_days, booking_release_time, booking_release_day_of_week, booking_release_timezone)
+VALUES ('00000000-0000-0000-0000-000000000001', false, 'lcms-sequences/', 365, false, 14, '09:00:00', 1, 'UTC')
 ON CONFLICT (id) DO NOTHING;
 
 -- Seed status colors for common statuses

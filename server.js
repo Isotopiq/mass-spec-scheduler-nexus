@@ -229,6 +229,52 @@ async function getSettings() {
   }
 }
 
+const zonedFormatterCache = new Map();
+const zonedDayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
+function getZonedParts(date, timeZone) {
+  const tz = timeZone || 'UTC';
+  let formatter = zonedFormatterCache.get(tz);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+      second: 'numeric',
+      weekday: 'short',
+      hourCycle: 'h23',
+    });
+    zonedFormatterCache.set(tz, formatter);
+  }
+  const parts = formatter.formatToParts(date);
+  const get = (type) => parts.find((p) => p.type === type)?.value;
+  return {
+    year: Number(get('year')),
+    month: Number(get('month')),
+    day: Number(get('day')),
+    hour: Number(get('hour')),
+    minute: Number(get('minute')),
+    second: Number(get('second')),
+    weekday: zonedDayMap[get('weekday') || ''] ?? 0,
+  };
+}
+
+function getUtcForParts(parts, timeZone) {
+  const tz = timeZone || 'UTC';
+  let utc = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second || 0);
+  for (let i = 0; i < 12; i++) {
+    const local = getZonedParts(new Date(utc), tz);
+    const diff = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second || 0)
+               - Date.UTC(local.year, local.month - 1, local.day, local.hour, local.minute, local.second || 0);
+    if (Math.abs(diff) < 1000) break;
+    utc += diff;
+  }
+  return new Date(utc);
+}
+
 function parseTime(timeValue) {
   if (!timeValue) return { hours: 9, minutes: 0 };
   if (typeof timeValue === 'object' && timeValue !== null && timeValue.hours !== undefined) {
@@ -240,40 +286,43 @@ function parseTime(timeValue) {
   return { hours: Number(m[1]), minutes: Number(m[2]) };
 }
 
-function getPreviousReleaseTime(now, dayOfWeek, timeValue) {
+function getPreviousReleaseTime(now, dayOfWeek, timeValue, timeZone) {
   const { hours, minutes } = parseTime(timeValue);
-  const candidate = new Date(now);
-  candidate.setSeconds(0, 0);
-  candidate.setMinutes(minutes);
-  candidate.setHours(hours);
+  const localNow = getZonedParts(now, timeZone);
+  const parts = { ...localNow, hour: hours, minute: minutes, second: 0 };
 
   if (typeof dayOfWeek === 'number' && !Number.isNaN(dayOfWeek)) {
-    const currentDay = candidate.getDay();
-    const diff = (currentDay - dayOfWeek + 7) % 7;
-    candidate.setDate(candidate.getDate() - diff);
+    const diff = (parts.weekday - dayOfWeek + 7) % 7;
+    parts.day -= diff;
+    parts.weekday = dayOfWeek;
   }
 
+  let candidate = getUtcForParts(parts, timeZone);
   if (candidate > now) {
     if (typeof dayOfWeek === 'number' && !Number.isNaN(dayOfWeek)) {
-      candidate.setDate(candidate.getDate() - 7);
+      parts.day -= 7;
     } else {
-      candidate.setDate(candidate.getDate() - 1);
+      parts.day -= 1;
     }
+    candidate = getUtcForParts(parts, timeZone);
   }
   return candidate;
 }
 
 function getBookingWindowEnd(settings, now = new Date()) {
   const releaseEnabled = settings?.booking_release_enabled;
-  const windowDays = settings?.booking_release_window_days;
+  const windowDays = settings?.booking_release_window_days || 0;
   if (releaseEnabled && windowDays > 0) {
     const releaseTime = settings?.booking_release_time;
     const dayOfWeek = settings?.booking_release_day_of_week;
-    const lastRelease = getPreviousReleaseTime(now, dayOfWeek, releaseTime);
-    const end = new Date(lastRelease);
-    end.setDate(end.getDate() + Number(windowDays));
-    end.setHours(23, 59, 59, 999);
-    return end;
+    const timeZone = settings?.booking_release_timezone;
+    const lastRelease = getPreviousReleaseTime(now, dayOfWeek, releaseTime, timeZone);
+    const endParts = getZonedParts(lastRelease, timeZone);
+    endParts.day += Number(windowDays);
+    endParts.hour = 23;
+    endParts.minute = 59;
+    endParts.second = 59;
+    return getUtcForParts(endParts, timeZone);
   }
 
   const maxDays = settings?.max_booking_days_ahead ?? 0;
@@ -381,7 +430,7 @@ async function enforceBookingRules(action, values, table, filters, user) {
         const releaseInfo = settings?.booking_release_day_of_week !== null && settings?.booking_release_day_of_week !== undefined
           ? `on ${['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][settings.booking_release_day_of_week]}s`
           : 'daily';
-        throw new Error(`Booking falls outside the current release window. Bookings are released ${releaseInfo} at ${String(settings.booking_release_time).slice(0,5)} for the following ${settings.booking_release_window_days} days.`);
+        throw new Error(`Booking falls outside the current release window. Bookings are released ${releaseInfo} at ${String(settings.booking_release_time).slice(0,5)} ${settings.booking_release_timezone || 'UTC'} for the following ${settings.booking_release_window_days} days.`);
       }
       throw new Error(`Booking cannot be scheduled more than ${settings?.max_booking_days_ahead ?? 0} days in advance`);
     }

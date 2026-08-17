@@ -20,6 +20,7 @@ export interface AppSettings {
   booking_release_window_days: number;
   booking_release_time: string;
   booking_release_day_of_week: number | null;
+  booking_release_timezone: string | null;
   updated_at: string;
 }
 
