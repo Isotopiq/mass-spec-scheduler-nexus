@@ -16,6 +16,10 @@ export interface AppSettings {
   favicon_url: string | null;
   site_name: string | null;
   site_url: string | null;
+  booking_release_enabled: boolean;
+  booking_release_window_days: number;
+  booking_release_time: string;
+  booking_release_day_of_week: number | null;
   updated_at: string;
 }
 

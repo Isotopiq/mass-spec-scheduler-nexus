@@ -229,6 +229,61 @@ async function getSettings() {
   }
 }
 
+function parseTime(timeValue) {
+  if (!timeValue) return { hours: 9, minutes: 0 };
+  if (typeof timeValue === 'object' && timeValue !== null && timeValue.hours !== undefined) {
+    return { hours: Number(timeValue.hours) || 0, minutes: Number(timeValue.minutes) || 0 };
+  }
+  const str = String(timeValue);
+  const m = str.match(/^(\d{1,2}):(\d{2})(?::\d{2})?/);
+  if (!m) return { hours: 9, minutes: 0 };
+  return { hours: Number(m[1]), minutes: Number(m[2]) };
+}
+
+function getPreviousReleaseTime(now, dayOfWeek, timeValue) {
+  const { hours, minutes } = parseTime(timeValue);
+  const candidate = new Date(now);
+  candidate.setSeconds(0, 0);
+  candidate.setMinutes(minutes);
+  candidate.setHours(hours);
+
+  if (typeof dayOfWeek === 'number' && !Number.isNaN(dayOfWeek)) {
+    const currentDay = candidate.getDay();
+    const diff = (currentDay - dayOfWeek + 7) % 7;
+    candidate.setDate(candidate.getDate() - diff);
+  }
+
+  if (candidate > now) {
+    if (typeof dayOfWeek === 'number' && !Number.isNaN(dayOfWeek)) {
+      candidate.setDate(candidate.getDate() - 7);
+    } else {
+      candidate.setDate(candidate.getDate() - 1);
+    }
+  }
+  return candidate;
+}
+
+function getBookingWindowEnd(settings, now = new Date()) {
+  const releaseEnabled = settings?.booking_release_enabled;
+  const windowDays = settings?.booking_release_window_days;
+  if (releaseEnabled && windowDays > 0) {
+    const releaseTime = settings?.booking_release_time;
+    const dayOfWeek = settings?.booking_release_day_of_week;
+    const lastRelease = getPreviousReleaseTime(now, dayOfWeek, releaseTime);
+    const end = new Date(lastRelease);
+    end.setDate(end.getDate() + Number(windowDays));
+    end.setHours(23, 59, 59, 999);
+    return end;
+  }
+
+  const maxDays = settings?.max_booking_days_ahead ?? 0;
+  if (maxDays > 0) {
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + maxDays, 23, 59, 59, 999);
+    return end;
+  }
+  return null;
+}
+
 async function enforceQuotaRules(userId, instrumentId, startTime, endTime, excludeBookingId) {
   const user_id = userId;
   if (!user_id || !startTime || !endTime) return;
@@ -318,14 +373,17 @@ async function enforceBookingRules(action, values, table, filters, user) {
   const startChanged = !existingStartTime || (startTime && startTime !== existingStartTime);
   if (startTime && startChanged) {
     const settings = await getSettings();
-    const maxDays = settings?.max_booking_days_ahead ?? 0;
-    if (maxDays > 0) {
-      const start = new Date(startTime);
-      const now = new Date();
-      const maxDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + maxDays, 23, 59, 59, 999);
-      if (start > maxDate) {
-        throw new Error(`Booking cannot be scheduled more than ${maxDays} days in advance`);
+    const start = new Date(startTime);
+    const now = new Date();
+    const maxDate = getBookingWindowEnd(settings, now);
+    if (maxDate && start > maxDate) {
+      if (settings?.booking_release_enabled && settings?.booking_release_window_days > 0) {
+        const releaseInfo = settings?.booking_release_day_of_week !== null && settings?.booking_release_day_of_week !== undefined
+          ? `on ${['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][settings.booking_release_day_of_week]}s`
+          : 'daily';
+        throw new Error(`Booking falls outside the current release window. Bookings are released ${releaseInfo} at ${String(settings.booking_release_time).slice(0,5)} for the following ${settings.booking_release_window_days} days.`);
       }
+      throw new Error(`Booking cannot be scheduled more than ${settings?.max_booking_days_ahead ?? 0} days in advance`);
     }
   }
 

@@ -4,20 +4,39 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Button } from "../ui/button";
 import { Switch } from "../ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { useAppSettings } from "../../hooks/useAppSettings";
 import { supabase } from "../../integrations/supabase/client";
 import { toast } from "sonner";
+
+const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+type Frequency = 'daily' | 'weekly';
 
 const BookingSettings: React.FC = () => {
   const { settings, isLoading, reload } = useAppSettings();
   const [days, setDays] = useState(365);
   const [recurringEnabled, setRecurringEnabled] = useState(false);
+  const [releaseEnabled, setReleaseEnabled] = useState(false);
+  const [releaseWindowDays, setReleaseWindowDays] = useState(14);
+  const [releaseTime, setReleaseTime] = useState("09:00");
+  const [releaseFrequency, setReleaseFrequency] = useState<Frequency>('weekly');
+  const [releaseDayOfWeek, setReleaseDayOfWeek] = useState(1);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (settings) {
       setDays(settings.max_booking_days_ahead ?? 365);
       setRecurringEnabled(settings.recurring_bookings_enabled ?? false);
+      setReleaseEnabled(settings.booking_release_enabled ?? false);
+      setReleaseWindowDays(settings.booking_release_window_days ?? 14);
+      setReleaseTime(String(settings.booking_release_time || "09:00").slice(0, 5));
+      if (settings.booking_release_day_of_week === null || settings.booking_release_day_of_week === undefined) {
+        setReleaseFrequency('daily');
+      } else {
+        setReleaseFrequency('weekly');
+        setReleaseDayOfWeek(settings.booking_release_day_of_week ?? 1);
+      }
     }
   }, [settings]);
 
@@ -25,9 +44,18 @@ const BookingSettings: React.FC = () => {
     e.preventDefault();
     if (!settings?.id) return;
     setSaving(true);
+    const values: Record<string, any> = {
+      max_booking_days_ahead: days,
+      recurring_bookings_enabled: recurringEnabled,
+      booking_release_enabled: releaseEnabled,
+      booking_release_window_days: releaseWindowDays,
+      booking_release_time: releaseTime,
+      booking_release_day_of_week: releaseFrequency === 'daily' ? null : releaseDayOfWeek,
+      updated_at: new Date().toISOString(),
+    };
     const { error } = await supabase
       .from("app_settings")
-      .update({ max_booking_days_ahead: days, recurring_bookings_enabled: recurringEnabled, updated_at: new Date().toISOString() })
+      .update(values)
       .eq("id", settings.id);
     setSaving(false);
     if (error) {
@@ -64,7 +92,7 @@ const BookingSettings: React.FC = () => {
               required
             />
             <p className="text-sm text-muted-foreground">
-              Users will only be able to select dates up to {days} day{days === 1 ? "" : "s"} from today.
+              Users will only be able to select dates up to {days} day{days === 1 ? "" : "s"} from today unless a release schedule is active.
             </p>
           </div>
 
@@ -80,6 +108,84 @@ const BookingSettings: React.FC = () => {
               checked={recurringEnabled}
               onCheckedChange={setRecurringEnabled}
             />
+          </div>
+
+          <div className="rounded-lg border p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="releaseSchedule" className="block">Scheduled booking release</Label>
+                <p className="text-sm text-muted-foreground">
+                  Open a future booking window at a recurring day/time instead of a fixed rolling horizon.
+                </p>
+              </div>
+              <Switch
+                id="releaseSchedule"
+                checked={releaseEnabled}
+                onCheckedChange={setReleaseEnabled}
+              />
+            </div>
+
+            {releaseEnabled && (
+              <div className="space-y-4 pt-2 border-t">
+                <div className="space-y-2">
+                  <Label htmlFor="releaseWindowDays">Booking window (days)</Label>
+                  <Input
+                    id="releaseWindowDays"
+                    type="number"
+                    min={1}
+                    value={releaseWindowDays}
+                    onChange={(e) => setReleaseWindowDays(Number(e.target.value))}
+                    required
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    How many days of bookings open at each release time (e.g., 14 for two weeks).
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="releaseFrequency">Release frequency</Label>
+                  <Select value={releaseFrequency} onValueChange={(v) => setReleaseFrequency(v as Frequency)}>
+                    <SelectTrigger id="releaseFrequency">
+                      <SelectValue placeholder="Select frequency" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="daily">Daily</SelectItem>
+                      <SelectItem value="weekly">Weekly</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {releaseFrequency === 'weekly' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="releaseDayOfWeek">Release day</Label>
+                    <Select value={String(releaseDayOfWeek)} onValueChange={(v) => setReleaseDayOfWeek(Number(v))}>
+                      <SelectTrigger id="releaseDayOfWeek">
+                        <SelectValue placeholder="Select day" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {DAYS.map((d, i) => (
+                          <SelectItem key={i} value={String(i)}>{d}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <Label htmlFor="releaseTime">Release time (UTC)</Label>
+                  <Input
+                    id="releaseTime"
+                    type="time"
+                    value={releaseTime}
+                    onChange={(e) => setReleaseTime(e.target.value)}
+                    required
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    At this time, the next {releaseWindowDays} day window becomes bookable.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
           <Button type="submit" disabled={saving}>

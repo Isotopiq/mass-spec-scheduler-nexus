@@ -17,6 +17,7 @@ import { Booking, Comment } from "../../types";
 import BookingComments from "./BookingComments";
 import { findBookingConflict, describeConflict } from "../../utils/bookingOverlap";
 import { useAppSettings } from "../../hooks/useAppSettings";
+import { getBookingWindowEnd } from "../../utils/bookingWindow";
 import SequenceFileUpload from "./SequenceFileUpload";
 
 interface EditBookingFormProps {
@@ -61,13 +62,8 @@ const EditBookingForm: React.FC<EditBookingFormProps> = ({
   });
 
   const maxBookingDate = useMemo(() => {
-    const days = appSettings?.max_booking_days_ahead ?? 365;
-    const max = new Date();
-    max.setHours(0, 0, 0, 0);
-    max.setDate(max.getDate() + days);
-    max.setHours(23, 59, 59, 999);
-    return max;
-  }, [appSettings?.max_booking_days_ahead]);
+    return getBookingWindowEnd(appSettings) ?? new Date(8640000000000000);
+  }, [appSettings]);
 
   // Generate time options in 30-minute increments for 24 hours
   const timeOptions = Array.from({ length: 48 }, (_, i) => {
