@@ -1,255 +1,355 @@
-
-import React, { createContext, useState, useContext, useEffect } from 'react';
-import { User } from '../types';
-import { useToast } from '../hooks/use-toast';
-import { v4 as uuidv4 } from 'uuid';
+import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { supabase } from "../integrations/supabase/client";
+import { toast } from "sonner";
+import { User, Profile, CreateUserData, Session } from "../types";
+import { sendEmail } from "../utils/emailNotifications";
+import { UserDeletionService } from "../components/admin/user/UserDeletionService";
 
 interface AuthContextType {
   user: User | null;
+  session: Session | null;
   isAuthenticated: boolean;
-  login: (email: string, password: string) => Promise<boolean>;
-  logout: () => void;
-  signup: (name: string, email: string, password: string) => Promise<boolean>;
-  updateUserProfile: (userData: User) => Promise<void>;
-  updateUserPassword: (userId: string, newPassword: string) => Promise<boolean>;
-  getUserById: (userId: string) => User | undefined;
+  isLoading: boolean;
   users: User[];
-  setUsers: React.Dispatch<React.SetStateAction<User[]>>;
-  createUser: (userData: Omit<User, "id">) => void;
-  updateUser: (userData: User) => void;
+  login: (email: string, password: string, rememberMe?: boolean) => Promise<{ needs2FA: boolean; tempToken?: string; email?: string; rememberMe?: boolean } | undefined>;
+  verify2FA: (tempToken: string, code: string, email: string, rememberMe?: boolean) => Promise<void>;
+  logout: () => Promise<void>;
+  updateUserProfile: (updatedUser: User) => void;
+  updateUserPassword: (userId: string, newPassword: string, oldPassword?: string) => Promise<void>;
+  createUser: (userData: CreateUserData) => Promise<void>;
   deleteUser: (userId: string) => void;
+  refreshCurrentUser: () => Promise<void>;
+  refreshUsers: () => Promise<void>;
+  signup: (email: string, password: string, name: string, role?: 'admin' | 'user') => Promise<void>;
 }
 
-const defaultUsers: User[] = [
-  { 
-    id: '1', 
-    name: 'Admin User', 
-    email: 'admin@example.com', 
-    password: 'admin123', 
-    role: 'admin',
-    department: 'IT Administration',
-    profileImage: ''
-  },
-  { 
-    id: '2', 
-    name: 'John Researcher', 
-    email: 'john@example.com', 
-    password: 'john123', 
-    role: 'user',
-    department: 'Research',
-    profileImage: ''
-  },
-  { 
-    id: '3', 
-    name: 'Sarah Scientist', 
-    email: 'sarah@example.com', 
-    password: 'sarah123', 
-    role: 'user',
-    department: 'Laboratory',
-    profileImage: ''
-  },
-  {
-    id: '4',
-    name: 'Eddy Kapelczak',
-    email: 'eddy@kapelczak.com',
-    password: 'Eddie#12',
-    role: 'user',
-    department: 'Research',
-    profileImage: ''
-  }
-];
+export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthContext = createContext<AuthContextType>({
-  user: null,
-  isAuthenticated: false,
-  login: async () => false,
-  logout: () => {},
-  signup: async () => false,
-  updateUserProfile: async () => {},
-  updateUserPassword: async () => false,
-  getUserById: () => undefined,
-  users: [],
-  setUsers: () => {},
-  createUser: () => {},
-  updateUser: () => {},
-  deleteUser: () => {}
-});
+const API_URL = import.meta.env.VITE_API_URL || '';
+const AUTH_USER_KEY = 'standalone_auth_user';
 
-export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const { toast } = useToast();
-  
-  // Initialize users state from localStorage or use default
-  const [users, setUsers] = useState<User[]>(() => {
-    const storedUsers = localStorage.getItem('mslab_users');
-    return storedUsers ? JSON.parse(storedUsers) : defaultUsers;
-  });
-  
-  // Initialize user state from localStorage
-  const [user, setUser] = useState<User | null>(() => {
-    const storedUser = localStorage.getItem('mslab_current_user');
-    return storedUser ? JSON.parse(storedUser) : null;
-  });
-  
-  // Update localStorage when users change
-  useEffect(() => {
-    localStorage.setItem('mslab_users', JSON.stringify(users));
-  }, [users]);
-  
-  // Update localStorage when current user changes
-  useEffect(() => {
-    if (user) {
-      localStorage.setItem('mslab_current_user', JSON.stringify(user));
-    } else {
-      localStorage.removeItem('mslab_current_user');
-    }
-  }, [user]);
-  
-  const login = async (email: string, password: string): Promise<boolean> => {
-    // Simulate API call delay
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        const foundUser = users.find(u => u.email === email && u.password === password);
-        
-        if (foundUser) {
-          setUser(foundUser);
-          resolve(true);
-        } else {
-          toast({
-            title: "Login Failed",
-            description: "Invalid email or password. Please try again.",
-            variant: "destructive",
-          });
-          resolve(false);
-        }
-      }, 500);
-    });
-  };
-  
-  const logout = () => {
-    setUser(null);
-    localStorage.removeItem('mslab_current_user');
-  };
-  
-  const signup = async (name: string, email: string, password: string): Promise<boolean> => {
-    // Check if the email already exists
-    if (users.some(u => u.email === email)) {
-      toast({
-        title: "Signup Failed",
-        description: "Email already registered. Please use a different email.",
-        variant: "destructive",
-      });
-      return false;
-    }
-    
-    const newUser: User = {
-      id: uuidv4(),
-      name,
-      email,
-      password,
-      role: 'user', // Default role for signup is user
-    };
-    
-    // Simulate API call delay
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        setUsers(prevUsers => [...prevUsers, newUser]);
-        setUser(newUser); // Automatically log in
-        resolve(true);
-      }, 500);
-    });
-  };
-  
-  const updateUserProfile = async (userData: User): Promise<void> => {
-    // Update the user in the users array
-    setUsers(prevUsers => 
-      prevUsers.map(u => u.id === userData.id ? userData : u)
-    );
-    
-    // Update the current user if the updated user is the current user
-    if (user && user.id === userData.id) {
-      setUser(userData);
-    }
-  };
-  
-  const updateUserPassword = async (userId: string, newPassword: string): Promise<boolean> => {
-    try {
-      // Update the user in the users array
-      setUsers(prevUsers => 
-        prevUsers.map(u => 
-          u.id === userId ? { ...u, password: newPassword } : u
-        )
-      );
-      
-      // Update the current user's password if the updated user is the current user
-      if (user && user.id === userId) {
-        setUser(prev => prev ? { ...prev, password: newPassword } : null);
-      }
-      
-      return true;
-    } catch (error) {
-      console.error("Error updating password:", error);
-      return false;
-    }
-  };
-  
-  const getUserById = (userId: string): User | undefined => {
-    return users.find(u => u.id === userId);
-  };
-  
-  const createUser = (userData: Omit<User, "id">) => {
-    const newUser: User = {
-      id: uuidv4(),
-      ...userData
-    };
-    setUsers(prevUsers => [...prevUsers, newUser]);
-  };
-  
-  const updateUser = (userData: User) => {
-    setUsers(prevUsers => 
-      prevUsers.map(u => u.id === userData.id ? userData : u)
-    );
-    
-    // Update the current user if the updated user is the current user
-    if (user && user.id === userData.id) {
-      setUser(userData);
-    }
-  };
-  
-  const deleteUser = (userId: string) => {
-    // Cannot delete yourself
-    if (user && user.id === userId) {
-      toast({
-        title: "Action Not Allowed",
-        description: "You cannot delete your own account.",
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    setUsers(prevUsers => prevUsers.filter(u => u.id !== userId));
-  };
-  
-  return (
-    <AuthContext.Provider 
-      value={{
-        user,
-        isAuthenticated: !!user,
-        login,
-        logout,
-        signup,
-        updateUserProfile,
-        updateUserPassword,
-        getUserById,
-        users,
-        setUsers,
-        createUser,
-        updateUser,
-        deleteUser
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
-  );
+const parseSettings = (value: any): any => {
+  if (!value) return {};
+  if (typeof value === 'object') return value;
+  try { return JSON.parse(value); } catch { return {}; }
 };
 
-export const useAuth = () => useContext(AuthContext);
+const profileFromRow = (row: any): Profile => ({
+  id: row.id,
+  name: row.name,
+  email: row.email,
+  role: row.role as 'admin' | 'user',
+  department: row.department,
+  profileImage: row.profile_image,
+  settings: parseSettings(row.settings),
+  twoFactorEnabled: row.two_factor_enabled || false,
+});
+
+const userFromRow = (row: any): User => ({
+  ...profileFromRow(row),
+  app_metadata: {},
+  user_metadata: { name: row.name, department: row.department },
+  aud: 'authenticated',
+  created_at: row.created_at,
+  updated_at: row.updated_at,
+  email_confirmed_at: row.created_at,
+  phone: null,
+  last_sign_in_at: row.last_sign_in_at,
+  is_anonymous: false,
+});
+
+const sessionFromData = (data: any): Session | null => {
+  if (!data?.session) return null;
+  return {
+    access_token: data.session.access_token,
+    token_type: data.session.token_type || 'bearer',
+    expires_in: data.session.expires_in,
+    expires_at: data.session.expires_at,
+    user: data.session.user,
+  };
+};
+
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [users, setUsers] = useState<User[]>([]);
+  const isAuthenticated = !!user;
+
+  const createExtendedUser = (base: any, profileData?: Profile): User => {
+    if (profileData) {
+      return { ...base, ...profileData, user_metadata: { name: profileData.name, department: profileData.department } };
+    }
+    return base;
+  };
+
+  const fetchUsers = async () => {
+    try {
+      const freshUsers = await UserDeletionService.fetchAllUsers();
+      setUsers(freshUsers);
+      return freshUsers;
+    } catch (error) {
+      console.error("AuthContext: Error fetching users:", error);
+      throw error;
+    }
+  };
+
+  const refreshUsers = async () => {
+    try {
+      const freshUsers = await fetchUsers();
+      console.log(`AuthContext: Users list refreshed - ${freshUsers.length} users`);
+    } catch (error) {
+      console.error('AuthContext: Error refreshing users:', error);
+    }
+  };
+
+  useEffect(() => {
+    let mounted = true;
+
+    const initializeAuth = async () => {
+      try {
+        const { data: { session: initialSession }, error: sessionError } = await supabase.auth.getSession();
+
+        if (sessionError) {
+          console.error('AuthContext: Session error:', sessionError);
+          if (mounted) setIsLoading(false);
+          return;
+        }
+
+        if (mounted) {
+          setSession(sessionFromData({ session: initialSession }));
+          if (initialSession?.user) {
+            const baseUser = initialSession.user as User;
+            try {
+              const { data: profileData } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', baseUser.id)
+                .single();
+              const profile = profileData ? profileFromRow(profileData) : undefined;
+              setUser(createExtendedUser(baseUser, profile));
+            } catch (profileError) {
+              console.error('AuthContext: Profile fetch error:', profileError);
+              setUser(baseUser);
+            }
+          } else {
+            setUser(null);
+          }
+          setIsLoading(false);
+        }
+      } catch (error) {
+        console.error('AuthContext: Initialization error:', error);
+        if (mounted) setIsLoading(false);
+      }
+    };
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
+      if (!mounted) return;
+      setSession(sessionFromData({ session: newSession }));
+      if (newSession?.user) {
+        const baseUser = newSession.user as User;
+        setTimeout(async () => {
+          try {
+            const { data: profileData } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', baseUser.id)
+              .single();
+            const profile = profileData ? profileFromRow(profileData) : undefined;
+            if (mounted) setUser(createExtendedUser(baseUser, profile));
+          } catch (error) {
+            console.error('AuthContext: Error fetching profile on auth change:', error);
+            if (mounted) setUser(baseUser);
+          }
+        }, 100);
+      } else {
+        setUser(null);
+      }
+    });
+
+    initializeAuth();
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isAuthenticated && !isLoading) {
+      fetchUsers();
+    }
+  }, [isAuthenticated, isLoading]);
+
+  const sendWelcomeEmail = async (email: string, name: string) => {
+    try {
+      const welcomeEmail = {
+        to: email,
+        subject: `Welcome to Lab Management System, ${name}!`,
+        body: `Welcome to our lab management platform!`,
+        templateType: "welcome",
+        variables: { userName: name }
+      };
+      await sendEmail(welcomeEmail);
+    } catch (error) {
+      console.error('Error sending welcome email:', error);
+    }
+  };
+
+  const login = async (email: string, password: string, rememberMe?: boolean) => {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password, rememberMe });
+    if (error) throw error;
+    if (data?.needs2FA) {
+      return {
+        needs2FA: true,
+        tempToken: data.tempToken,
+        email,
+        rememberMe,
+      };
+    }
+  };
+
+  const verify2FA = async (tempToken: string, code: string, email: string, rememberMe?: boolean) => {
+    const { data, error } = await supabase.auth.verify2FA({ email, tempToken, code, rememberMe });
+    if (error) throw error;
+    if (data?.session?.user) {
+      const baseUser = data.session.user as User;
+      try {
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', baseUser.id)
+          .single();
+        const profile = profileData ? profileFromRow(profileData) : undefined;
+        setUser(createExtendedUser(baseUser, profile));
+      } catch (profileError) {
+        console.error('AuthContext: Profile fetch error after 2FA:', profileError);
+        setUser(baseUser);
+      }
+    }
+  };
+
+  const signup = async (email: string, password: string, name: string, _role: 'admin' | 'user' = 'user'): Promise<void> => {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { name } }
+    });
+
+    if (error) throw error;
+    if (data.user) {
+      setTimeout(() => sendWelcomeEmail(email, name), 2000);
+    }
+  };
+
+  const logout = async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) throw error;
+  };
+
+  const updateUserProfile = (updatedUser: User) => {
+    setUser(updatedUser);
+    setUsers(users.map(u => u.id === updatedUser.id ? updatedUser : u));
+    try {
+      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(updatedUser));
+    } catch {
+      // ignore storage errors
+    }
+  };
+
+  const updateUserPassword = async (userId: string, newPassword: string, oldPassword?: string) => {
+    if (!newPassword || newPassword.length < 6) {
+      throw new Error('Password must be at least 6 characters long.');
+    }
+    const isAdmin = user?.role === 'admin' && user?.id !== userId;
+    const token = localStorage.getItem('standalone_auth_token');
+    const url = `${API_URL}/api/auth/${isAdmin ? 'admin-update-password' : 'update-password'}`;
+    const body = isAdmin ? { userId, password: newPassword } : { oldPassword, newPassword };
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token || ''}`,
+      },
+      body: JSON.stringify(body),
+    });
+    const json = await res.json();
+    if (!res.ok || json.error) throw new Error(json.error?.message || 'Password update failed');
+  };
+
+  const createUser = async (userData: CreateUserData) => {
+    const token = localStorage.getItem('standalone_auth_token');
+    const res = await fetch(`${API_URL}/api/auth/admin-create-user`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token || ''}`,
+      },
+      body: JSON.stringify({
+        email: userData.email,
+        password: userData.password,
+        name: userData.name,
+        role: userData.role,
+        department: userData.department,
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok || json.error) throw new Error(json.error?.message || 'User creation failed');
+
+    if (!userData.password && json.data?.generatedPassword) {
+      toast.success(`User created. Temporary password: ${json.data.generatedPassword}`);
+    }
+    await refreshUsers();
+  };
+
+  const deleteUser = (userId: string) => {
+    setUsers(prevUsers => prevUsers.filter(u => u.id !== userId));
+  };
+
+  const refreshCurrentUser = async () => {
+    try {
+      const { data: { user: refreshedUser } } = await supabase.auth.getUser();
+      if (refreshedUser) {
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', refreshedUser.id)
+          .single();
+        if (profileData) {
+          const profile = profileFromRow(profileData);
+          setUser(createExtendedUser(refreshedUser, profile));
+        }
+      }
+    } catch (error) {
+      console.error('Error refreshing user:', error);
+    }
+  };
+
+  const value = {
+    user,
+    session,
+    isAuthenticated,
+    isLoading,
+    users,
+    login,
+    verify2FA,
+    logout,
+    updateUserProfile,
+    updateUserPassword,
+    createUser,
+    deleteUser,
+    refreshCurrentUser,
+    refreshUsers,
+    signup,
+  };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+};
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error("useAuth must be used within an AuthProvider");
+  }
+  return context;
+};

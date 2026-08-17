@@ -1,4 +1,3 @@
-
 import React from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog";
 import { Input } from "../ui/input";
@@ -15,6 +14,10 @@ interface PasswordDialogProps {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   userId?: string;
+  oldPassword?: string;
+  setOldPassword?: (password: string) => void;
+  confirmPassword?: string;
+  setConfirmPassword?: (password: string) => void;
 }
 
 const PasswordDialog: React.FC<PasswordDialogProps> = ({
@@ -26,11 +29,16 @@ const PasswordDialog: React.FC<PasswordDialogProps> = ({
   isSubmitting = false,
   open,
   onOpenChange,
-  userId
+  oldPassword = "",
+  setOldPassword,
+  confirmPassword = "",
+  setConfirmPassword,
 }) => {
   // Use either open/onOpenChange or isOpen/onClose based on what's provided
   const dialogOpen = open !== undefined ? open : isOpen;
   const handleOpenChange = onOpenChange || onClose;
+  const requireOld = !!setOldPassword;
+  const requireConfirm = !!setConfirmPassword;
 
   return (
     <Dialog open={dialogOpen} onOpenChange={handleOpenChange}>
@@ -39,6 +47,18 @@ const PasswordDialog: React.FC<PasswordDialogProps> = ({
           <DialogTitle>Change Password</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 pt-4">
+          {requireOld && (
+            <div className="space-y-2">
+              <Label htmlFor="old-password">Current Password</Label>
+              <Input
+                id="old-password"
+                type="password"
+                value={oldPassword}
+                onChange={(e) => setOldPassword?.(e.target.value)}
+                required
+              />
+            </div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="new-password">New Password</Label>
             <Input
@@ -49,6 +69,18 @@ const PasswordDialog: React.FC<PasswordDialogProps> = ({
               required
             />
           </div>
+          {requireConfirm && (
+            <div className="space-y-2">
+              <Label htmlFor="confirm-password">Confirm New Password</Label>
+              <Input
+                id="confirm-password"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword?.(e.target.value)}
+                required
+              />
+            </div>
+          )}
           <div className="flex justify-end space-x-2 pt-4">
             <Button
               type="button"

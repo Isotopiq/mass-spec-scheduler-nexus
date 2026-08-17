@@ -1,24 +1,120 @@
 
-import React from "react";
-import { Navigate, Outlet, useLocation } from "react-router-dom";
+import React, { useEffect, useRef, useState } from "react";
+import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import Navbar from "./Navbar";
 import { useAuth } from "../../contexts/AuthContext";
+import { useOptimizedBooking } from "../../contexts/OptimizedBookingContext";
 import Footer from "./Footer";
+import { Loader2 } from "lucide-react";
 
 const AppLayout: React.FC = () => {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user, isLoading: authLoading } = useAuth();
+  const { isLoading: bookingLoading, isInitialized } = useOptimizedBooking();
   const location = useLocation();
+  const navigate = useNavigate();
+  const lastActivityRef = useRef<number>(Date.now());
+  
+  console.log("AppLayout: Auth loading:", authLoading, "Authenticated:", isAuthenticated, "Path:", location.pathname);
+  
+  // Update last activity on user interactions
+  useEffect(() => {
+    const events = ['click', 'keydown', 'scroll'];
+    const activityHandler = () => {
+      lastActivityRef.current = Date.now();
+    };
+    
+    events.forEach(event => {
+      window.addEventListener(event, activityHandler);
+    });
+    
+    return () => {
+      events.forEach(event => {
+        window.removeEventListener(event, activityHandler);
+      });
+    };
+  }, []);
+  
+  // Check for auto-logout based on user's settings
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      let autoLogoutMinutes = 30;
+      try {
+        const userSettings = user.settings;
+        const savedSettings = localStorage.getItem('mslab_user_settings');
+        const localSettings = savedSettings ? JSON.parse(savedSettings) : { autoLogout: 30 };
+        autoLogoutMinutes = Number(userSettings?.autoLogout ?? localSettings?.autoLogout) || 30;
+      } catch {
+        autoLogoutMinutes = 30;
+      }
+      const autoLogoutTime = autoLogoutMinutes * 60 * 1000;
+      if (!autoLogoutTime || autoLogoutTime <= 0) return;
 
+      const checkActivityInterval = setInterval(() => {
+        const currentTime = Date.now();
+        const elapsedTime = currentTime - lastActivityRef.current;
+
+        if (elapsedTime > autoLogoutTime) {
+          console.log(`Auto logout triggered after ${autoLogoutMinutes} minutes of inactivity`);
+          clearInterval(checkActivityInterval);
+          navigate('/login', { state: { autoLogout: true } });
+          window.location.reload();
+        }
+      }, 10000);
+
+      return () => clearInterval(checkActivityInterval);
+    }
+  }, [isAuthenticated, user, navigate]);
+  
+  // Handle authentication redirect
+  useEffect(() => {
+    if (!authLoading) {
+      console.log("AppLayout - Auth loading complete, authenticated:", isAuthenticated);
+      
+      if (location.pathname === "/" && isAuthenticated) {
+        console.log("AppLayout - Redirecting authenticated user from root to dashboard");
+        navigate("/dashboard", { replace: true });
+      }
+    }
+  }, [isAuthenticated, location.pathname, navigate, authLoading]);
+  
+  // Show loading state while auth is loading
+  if (authLoading) {
+    console.log("AppLayout - Showing auth loading state");
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="flex flex-col items-center space-y-4">
+          <Loader2 className="h-10 w-10 animate-spin text-mslab-400" />
+          <span className="text-lg text-mslab-400">Loading application...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Redirect to login if not authenticated
   if (!isAuthenticated) {
-    // Save the current location to redirect back after login
+    console.log("AppLayout - User not authenticated, redirecting to login");
     return <Navigate to="/login" state={{ from: location.pathname }} replace />;
   }
+
+  // Show data loading state for dashboard only when not yet initialized
+  const showDataLoading = location.pathname === "/dashboard" && bookingLoading && !isInitialized;
+
+  console.log("AppLayout - Rendering main layout");
 
   return (
     <div className="flex flex-col min-h-screen">
       <Navbar />
       <main className="flex-1">
-        <Outlet />
+        {showDataLoading ? (
+          <div className="flex items-center justify-center h-full min-h-[60vh]">
+            <div className="flex flex-col items-center space-y-4">
+              <Loader2 className="h-10 w-10 animate-spin text-mslab-400" />
+              <span className="text-lg text-mslab-400">Loading dashboard data...</span>
+            </div>
+          </div>
+        ) : (
+          <Outlet />
+        )}
       </main>
       <Footer />
     </div>
