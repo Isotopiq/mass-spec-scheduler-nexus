@@ -29,7 +29,26 @@ const UPLOAD_DIR = path.join(__dirname, 'uploads');
 
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-const pool = new Pool({ connectionString: DATABASE_URL });
+const pool = new Pool({
+  connectionString: DATABASE_URL,
+  max: Number(process.env.PG_POOL_MAX || 10),
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 10000,
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10000,
+});
+
+pool.on('error', err => {
+  console.error('Postgres pool error (idle client):', err.message);
+});
+
+process.on('unhandledRejection', err => {
+  console.error('Unhandled promise rejection:', err);
+});
+
+process.on('uncaughtException', err => {
+  console.error('Uncaught exception:', err);
+});
 
 const ALLOWED_TABLES = {
   app_settings: { select: 'all', insert: 'admin', update: 'admin', delete: 'admin', restrictedColumns: ['s3_endpoint', 's3_region', 's3_bucket', 's3_access_key_id', 's3_secret_access_key', 's3_force_path_style'] },
@@ -2856,7 +2875,15 @@ app.get('/api/calendar/:token/feed.ics', async (req, res) => {
   }
 });
 
-app.get('/health', (req, res) => res.type('text').send('healthy\n'));
+app.get('/health', async (req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    res.type('text').send('healthy\n');
+  } catch (err) {
+    console.error('Health check failed:', err.message);
+    res.status(503).type('text').send('database unavailable\n');
+  }
+});
 
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
@@ -2865,9 +2892,20 @@ app.get('*', (req, res) => {
 async function start() {
   await runMigrations();
   await seedDefaults();
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
   });
+  server.keepAliveTimeout = 65000;
+
+  const shutdown = signal => {
+    console.log(`Received ${signal}, shutting down`);
+    server.close(() => {
+      pool.end().finally(() => process.exit(0));
+    });
+    setTimeout(() => process.exit(1), 10000).unref();
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 start().catch(err => {
