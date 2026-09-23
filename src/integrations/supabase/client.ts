@@ -32,6 +32,12 @@ function getStoredUser(): any {
   }
 }
 
+function handleUnauthorized(res: Response) {
+  if (res.status === 401 && getToken()) {
+    clearAuth();
+  }
+}
+
 function getHeaders(): HeadersInit {
   const headers: HeadersInit = { 'Content-Type': 'application/json' };
   const token = getToken();
@@ -45,6 +51,7 @@ async function apiPost(path: string, body?: any) {
     headers: getHeaders(),
     body: body ? JSON.stringify(body) : undefined,
   });
+  if (!path.startsWith('/api/auth/signin')) handleUnauthorized(res);
   const json = await res.json().catch(() => ({}));
   if (!res.ok && !json.error) {
     return { data: null, error: { message: res.statusText } };
@@ -73,6 +80,10 @@ const auth = {
     // Refresh against server to keep profile fields up to date.
     try {
       const res = await fetch(`${API_URL}/api/auth/user`, { headers: getHeaders() });
+      if (res.status === 401) {
+        clearAuth();
+        return { data: { user: null }, error: null };
+      }
       const json = await res.json();
       if (json.data?.user) {
         localStorage.setItem(AUTH_USER_KEY, JSON.stringify(json.data.user));
@@ -230,6 +241,7 @@ class QueryBuilder {
       headers: getHeaders(),
       body: JSON.stringify(body),
     });
+    handleUnauthorized(res);
     const json = await res.json().catch(() => ({ data: null, error: { message: res.statusText }, count: null }));
     if (!res.ok && !json.error) {
       return { data: null, error: { message: res.statusText }, count: null };
