@@ -35,7 +35,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
   selectedTime = "09:00",
   instrumentId
 }) => {
-  const { createBooking, instruments, bookings } = useOptimizedBooking();
+  const { createBooking, instruments, bookings, refreshData } = useOptimizedBooking();
   const { user } = useAuth();
   const { settings: appSettings } = useAppSettings();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -184,6 +184,12 @@ const BookingForm: React.FC<BookingFormProps> = ({
       const repeatWeeks = parseInt(formData.repeatWeeks || '2', 10);
 
       if (recurringEnabled && formData.isRecurring && repeatWeeks >= 2) {
+        const durationMs = endDate.getTime() - startDate.getTime();
+        const occurrences = Array.from({ length: repeatWeeks }, (_, i) => {
+          const s = new Date(startDate);
+          s.setDate(s.getDate() + i * 7);
+          return { start: s.toISOString(), end: new Date(s.getTime() + durationMs).toISOString() };
+        });
         const { data: sess } = await supabase.auth.getSession();
         const token = sess.session?.access_token;
         const resp = await fetch('/api/bookings/recurring', {
@@ -195,12 +201,38 @@ const BookingForm: React.FC<BookingFormProps> = ({
             endTime: endDate.toISOString(),
             purpose: formData.purpose,
             details: detailsText,
-            repeatWeeks
+            repeatWeeks,
+            occurrences
           })
         });
-        const json = await resp.json();
+        const json = await resp.json().catch(() => ({}));
         if (!resp.ok) throw new Error(json.error?.message || 'Recurring booking failed');
-        toast.success(`Created ${json.data.count} recurring bookings`);
+        const created: { id: string }[] = json.data?.created ?? [];
+        const skipped: { start: string; error: string }[] = json.data?.skipped ?? [];
+        if (created.length === 0) {
+          throw new Error(skipped[0]?.error || 'No recurring bookings could be created');
+        }
+        if (pendingFile && created[0]?.id) {
+          try {
+            const form = new FormData();
+            form.append("file", pendingFile);
+            form.append("bookingId", created[0].id);
+            const up = await fetch(`${SUPABASE_FUNCTIONS_URL}/s3-upload-sequence`, {
+              method: "POST", headers: { Authorization: `Bearer ${token}` }, body: form
+            });
+            if (!up.ok) throw new Error((await up.json().catch(() => ({}))).error || "Upload failed");
+          } catch (uploadErr) {
+            console.error("Sequence upload failed", uploadErr);
+            toast.error("Bookings created, but sequence file upload failed");
+          }
+        }
+        if (skipped.length) {
+          const dates = skipped.map(s => format(new Date(s.start), 'MMM d')).join(', ');
+          toast.warning(`Created ${created.length} of ${repeatWeeks} bookings. Skipped ${dates}: ${skipped[0].error}`, { duration: 8000 });
+        } else {
+          toast.success(`Created ${created.length} recurring bookings`);
+        }
+        await refreshData();
         onOpenChange(false);
         setPendingFile(null);
         setFormData({

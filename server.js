@@ -2599,21 +2599,39 @@ app.post('/api/bookings/recurring', requireAuth, async (req, res) => {
     const settings = await getSettings();
     if (!settings?.recurring_bookings_enabled) throw new Error('Recurring bookings are disabled by an administrator');
 
-    const { instrumentId, startTime, endTime, purpose, details, repeatWeeks } = req.body;
+    const { instrumentId, startTime, endTime, purpose, details, repeatWeeks, occurrences } = req.body;
     const weeks = parseInt(repeatWeeks || '1', 10);
     if (!instrumentId || !startTime || !endTime || weeks < 2 || weeks > 52) throw new Error('Invalid recurring booking request');
 
-    const created = [];
-    const skipped = [];
     const firstStart = new Date(startTime);
     const firstEnd = new Date(endTime);
+    if (Number.isNaN(firstStart.getTime()) || Number.isNaN(firstEnd.getTime()) || firstEnd <= firstStart) {
+      throw new Error('Invalid recurring booking times');
+    }
     const durationMs = firstEnd.getTime() - firstStart.getTime();
 
+    // Prefer client-computed occurrences (wall-clock stable across DST); fall back to fixed 7-day steps.
+    let slots;
+    if (Array.isArray(occurrences) && occurrences.length) {
+      if (occurrences.length < 2 || occurrences.length > 52) throw new Error('Invalid recurring booking request');
+      slots = occurrences.map(o => {
+        const s = new Date(o?.start);
+        const e = new Date(o?.end);
+        if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime()) || e <= s) throw new Error('Invalid recurring occurrence');
+        return { s, e };
+      });
+    } else {
+      slots = Array.from({ length: weeks }, (_, i) => {
+        const s = new Date(firstStart.getTime() + i * 7 * 24 * 60 * 60 * 1000);
+        return { s, e: new Date(s.getTime() + durationMs) };
+      });
+    }
+
+    const created = [];
+    const skipped = [];
     const status = req.user.role === 'admin' ? 'confirmed' : 'pending';
     let parentId = null;
-    for (let i = 0; i < weeks; i++) {
-      const s = new Date(firstStart.getTime() + i * 7 * 24 * 60 * 60 * 1000);
-      const e = new Date(s.getTime() + durationMs);
+    for (const { s, e } of slots) {
       const instStart = s.toISOString();
       const instEnd = e.toISOString();
       try {
@@ -2630,7 +2648,7 @@ app.post('/api/bookings/recurring', requireAuth, async (req, res) => {
         const { rows } = await pool.query(
           `INSERT INTO bookings (user_id, instrument_id, start_time, end_time, purpose, details, status, recurrence_rule, parent_booking_id)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-          [req.user.id, instrumentId, instStart, instEnd, purpose || 'Recurring booking', details, status, `weekly:${weeks}`, parentId]
+          [req.user.id, instrumentId, instStart, instEnd, purpose || 'Recurring booking', details, status, `weekly:${slots.length}`, parentId]
         );
         created.push(rows[0]);
         if (!parentId) parentId = rows[0].id;

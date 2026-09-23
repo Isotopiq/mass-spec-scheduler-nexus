@@ -662,10 +662,10 @@ export const OptimizedBookingProvider: React.FC<{ children: React.ReactNode }> =
       const start = new Date(b.start);
       const end = new Date(b.end);
       const now = new Date();
-      return now > end && !b.checked_in_at && String(b.status).toLowerCase() === 'confirmed';
+      return now > end && !b.checkedInAt && String(b.status).toLowerCase() === 'confirmed';
     }).length;
 
-    const checkInCount = bookings.filter(b => b.checked_in_at).length;
+    const checkInCount = bookings.filter(b => b.checkedInAt).length;
 
     const totalDurationHours = bookings.reduce((sum, b) => {
       const start = new Date(b.start);

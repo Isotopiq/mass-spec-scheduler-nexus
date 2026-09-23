@@ -119,6 +119,9 @@ export const BookingCard: React.FC<BookingCardProps> = ({
           <Badge variant={getStatusVariant(booking.status)}>
             {getStatusText(booking.status)}
           </Badge>
+          {booking.recurrenceRule && (
+            <Badge variant="outline" title={`Repeats ${booking.recurrenceRule.replace(':', ' x')}`}>Recurring</Badge>
+          )}
           {showSwapButton && (
             <SwapRequestDialog bookingId={booking.id} onRequested={onSwapRequested}>
               <Button variant="outline" size="sm" title="Request swap">
