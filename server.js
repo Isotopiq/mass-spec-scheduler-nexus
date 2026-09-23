@@ -24,6 +24,9 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const DATABASE_URL = process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/mass_spec_scheduler';
 const JWT_SECRET = process.env.JWT_SECRET || 'change-me';
+if (!process.env.JWT_SECRET) {
+  console.warn('JWT_SECRET is not set; using an insecure default. Existing sessions are invalidated whenever this value changes.');
+}
 const S3_PROVIDER = (process.env.S3_PROVIDER || 'local').toLowerCase();
 const UPLOAD_DIR = path.join(__dirname, 'uploads');
 
