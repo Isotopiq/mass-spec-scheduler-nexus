@@ -48,6 +48,7 @@ const getStatusVariant = (status: string) => {
     case "Completed":
       return "outline";
     case "cancelled":
+    case "denied":
       return "destructive";
     case "Delayed":
       return "secondary";

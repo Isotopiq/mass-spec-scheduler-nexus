@@ -490,11 +490,16 @@ const EditBookingForm: React.FC<EditBookingFormProps> = ({
                 <SelectValue placeholder="Select status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="Not-Started">Not Started</SelectItem>
-                <SelectItem value="In-Progress">In Progress</SelectItem>
-                <SelectItem value="Completed">Completed</SelectItem>
-                <SelectItem value="Delayed">Delayed</SelectItem>
-                <SelectItem value="confirmed">Confirmed</SelectItem>
+                {user?.role === "admin" && (
+                  <>
+                    <SelectItem value="Not-Started">Not Started</SelectItem>
+                    <SelectItem value="In-Progress">In Progress</SelectItem>
+                    <SelectItem value="Completed">Completed</SelectItem>
+                    <SelectItem value="Delayed">Delayed</SelectItem>
+                    <SelectItem value="confirmed">Confirmed</SelectItem>
+                    <SelectItem value="denied">Denied</SelectItem>
+                  </>
+                )}
                 <SelectItem value="pending">Pending</SelectItem>
                 <SelectItem value="cancelled">Cancelled</SelectItem>
               </SelectContent>

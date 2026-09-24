@@ -35,7 +35,7 @@ const CalendarView: React.FC = () => {
 
   // Memoized filtered bookings
   const visibleBookings = useMemo(() => {
-    let filteredBookings = bookings.filter(b => b.status !== "cancelled");
+    let filteredBookings = bookings.filter(b => b.status !== "cancelled" && b.status !== "denied");
 
     if (selectedInstrument !== "all") {
       filteredBookings = filteredBookings.filter(booking => 

@@ -604,10 +604,12 @@ export const OptimizedBookingProvider: React.FC<{ children: React.ReactNode }> =
 
   // Memoized statistics calculation with proper typing
   const statistics = useMemo((): BookingStatistics => {
-    const totalBookings = bookings.length;
+    const isActive = (b: Booking) => !['cancelled', 'denied'].includes(String(b.status).toLowerCase());
+    const activeBookings = bookings.filter(isActive);
+    const totalBookings = activeBookings.length;
     
     const instrumentUsage = instruments.map(instrument => {
-      const instrumentBookings = bookings.filter(b => b.instrumentId === instrument.id);
+      const instrumentBookings = activeBookings.filter(b => b.instrumentId === instrument.id);
       const totalHours = instrumentBookings.reduce((sum, booking) => {
         const start = new Date(booking.start);
         const end = new Date(booking.end);
@@ -623,7 +625,7 @@ export const OptimizedBookingProvider: React.FC<{ children: React.ReactNode }> =
     }).sort((a, b) => b.totalHours - a.totalHours); // Ensure proper sorting by totalHours descending
 
     const userBookings = users.map(user => {
-      const userBookingList = bookings.filter(b => b.userId === user.id);
+      const userBookingList = activeBookings.filter(b => b.userId === user.id);
       const totalHours = userBookingList.reduce((sum, booking) => {
         const start = new Date(booking.start);
         const end = new Date(booking.end);
@@ -641,7 +643,7 @@ export const OptimizedBookingProvider: React.FC<{ children: React.ReactNode }> =
     const weeklyUsage = Array.from({ length: 7 }, (_, i) => {
       const date = new Date();
       date.setDate(date.getDate() - i);
-      const dayBookings = bookings.filter(booking => {
+      const dayBookings = activeBookings.filter(booking => {
         const bookingDate = new Date(booking.start);
         return bookingDate.toDateString() === date.toDateString();
       });
@@ -667,7 +669,7 @@ export const OptimizedBookingProvider: React.FC<{ children: React.ReactNode }> =
 
     const checkInCount = bookings.filter(b => b.checkedInAt).length;
 
-    const totalDurationHours = bookings.reduce((sum, b) => {
+    const totalDurationHours = activeBookings.reduce((sum, b) => {
       const start = new Date(b.start);
       const end = new Date(b.end);
       return sum + (end.getTime() - start.getTime()) / (1000 * 60 * 60);

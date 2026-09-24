@@ -71,7 +71,7 @@ const PendingBookingsManagement: React.FC = () => {
     try {
       await updateBooking({
         ...booking,
-        status: "cancelled"
+        status: "denied"
       });
 
       // Booking status-change emails are sent server-side by the REST update hook

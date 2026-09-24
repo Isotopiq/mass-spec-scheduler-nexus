@@ -176,10 +176,9 @@ function buildWhere(filters, table, user, action, values, paramStart = 1) {
     }
   }
   if (table === 'notifications' && (action === 'update' || action === 'delete' || action === 'select')) {
-    if (user.role !== 'admin') {
-      conditions.push(pgFormat('"user_id" = $%s', paramIdx++));
-      params.push(user.id);
-    }
+    // Notifications are personal: admins see only their own too
+    conditions.push(pgFormat('"user_id" = $%s', paramIdx++));
+    params.push(user.id);
   }
   if (table === 'email_digests' && (action === 'update' || action === 'delete' || action === 'select')) {
     if (user.role !== 'admin') {
@@ -2620,6 +2619,10 @@ app.post('/api/bookings/recurring', requireAuth, async (req, res) => {
         if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime()) || e <= s) throw new Error('Invalid recurring occurrence');
         return { s, e };
       });
+      const sorted = [...slots].sort((a, b) => a.s - b.s);
+      for (let i = 1; i < sorted.length; i++) {
+        if (sorted[i].s < sorted[i - 1].e) throw new Error('Recurring occurrences overlap each other');
+      }
     } else {
       slots = Array.from({ length: weeks }, (_, i) => {
         const s = new Date(firstStart.getTime() + i * 7 * 24 * 60 * 60 * 1000);
