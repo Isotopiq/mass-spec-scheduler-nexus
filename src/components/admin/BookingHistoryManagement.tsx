@@ -81,6 +81,7 @@ const BookingHistoryManagement: React.FC = () => {
       case 'pending':
         return 'secondary';
       case 'cancelled':
+      case 'denied':
         return 'destructive';
       case 'completed':
         return 'outline';

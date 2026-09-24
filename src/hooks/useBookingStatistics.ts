@@ -2,8 +2,9 @@
 import { useMemo } from "react";
 import { Booking, Instrument, BookingStatistics } from "../types";
 
-export const useBookingStatistics = (bookings: Booking[], instruments: Instrument[]): BookingStatistics => {
+export const useBookingStatistics = (allBookings: Booking[], instruments: Instrument[]): BookingStatistics => {
   return useMemo(() => {
+    const bookings = allBookings.filter(b => !['cancelled', 'denied'].includes(String(b.status).toLowerCase()));
     const totalBookings = bookings.length;
 
     // Instrument Usage
@@ -70,7 +71,7 @@ export const useBookingStatistics = (bookings: Booking[], instruments: Instrumen
       userBookings,
       weeklyUsage
     };
-  }, [bookings, instruments]);
+  }, [allBookings, instruments]);
 };
 
 // Helper function to get week number

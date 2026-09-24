@@ -219,6 +219,7 @@ const EditBookingDialog: React.FC<EditBookingDialogProps> = ({ booking, isOpen, 
                 <SelectItem value="pending">Pending</SelectItem>
                 <SelectItem value="confirmed">Confirmed</SelectItem>
                 <SelectItem value="cancelled">Cancelled</SelectItem>
+                <SelectItem value="denied">Denied</SelectItem>
                 <SelectItem value="completed">Completed</SelectItem>
               </SelectContent>
             </Select>

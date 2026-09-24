@@ -75,7 +75,7 @@ const MyBookingsPage: React.FC = () => {
     
     const upcoming = filteredAndSortedBookings.filter(booking => {
       const startTime = new Date(booking.start);
-      return startTime > now && booking.status !== "Completed" && booking.status !== "cancelled";
+      return startTime > now && booking.status !== "Completed" && booking.status !== "cancelled" && booking.status !== "denied";
     });
 
     const current = filteredAndSortedBookings.filter(booking => {
@@ -87,7 +87,7 @@ const MyBookingsPage: React.FC = () => {
 
     const past = filteredAndSortedBookings.filter(booking => {
       const endTime = new Date(booking.end);
-      return (endTime < now || booking.status === "Completed" || booking.status === "cancelled") && 
+      return (endTime < now || booking.status === "Completed" || booking.status === "cancelled" || booking.status === "denied") && 
              booking.status !== "Delayed";
     });
 
