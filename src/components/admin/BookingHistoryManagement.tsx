@@ -11,9 +11,10 @@ import { toast } from "sonner";
 import { Trash2, Edit } from "lucide-react";
 import EditBookingDialog from "./EditBookingDialog";
 import { Booking } from "../../types";
+import SequenceFileLink from "../calendar/SequenceFileLink";
 
 const BookingHistoryManagement: React.FC = () => {
-  const { bookings, deleteBooking, getStatusColor } = useOptimizedBooking();
+  const { bookings, deleteBooking, getStatusColor, refreshData } = useOptimizedBooking();
   const [currentPage, setCurrentPage] = useState(1);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
@@ -116,6 +117,7 @@ const BookingHistoryManagement: React.FC = () => {
                       <TableHead>End Time</TableHead>
                       <TableHead>Purpose</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>File</TableHead>
                       <TableHead>Created</TableHead>
                       <TableHead className="w-[120px]">Actions</TableHead>
                     </TableRow>
@@ -137,6 +139,18 @@ const BookingHistoryManagement: React.FC = () => {
                           >
                             {booking.status}
                           </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {booking.sequenceFileKey && booking.sequenceFileName ? (
+                            <SequenceFileLink
+                              bookingId={booking.id}
+                              fileName={booking.sequenceFileName}
+                              canEdit
+                              onSaved={refreshData}
+                            />
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
                         </TableCell>
                         <TableCell>{formatDateTime(booking.createdAt)}</TableCell>
                         <TableCell>
