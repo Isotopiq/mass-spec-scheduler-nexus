@@ -5,6 +5,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
+import SequenceFileLink from "../calendar/SequenceFileLink";
 import { 
   Table, 
   TableBody, 
@@ -170,6 +171,14 @@ const PendingBookingsManagement: React.FC = () => {
                             <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
                               <FileText className="h-3 w-3" />
                               Details available
+                            </div>
+                          )}
+                          {booking.sequenceFileKey && booking.sequenceFileName && (
+                            <div className="mt-1">
+                              <SequenceFileLink
+                                bookingId={booking.id}
+                                fileName={booking.sequenceFileName}
+                              />
                             </div>
                           )}
                         </div>
