@@ -6,21 +6,50 @@ export const SUPABASE_FUNCTIONS_URL = `${API_URL}/api/functions`;
 
 const AUTH_TOKEN_KEY = 'standalone_auth_token';
 const AUTH_USER_KEY = 'standalone_auth_user';
+const AUTH_EXPIRES_KEY = 'standalone_auth_expires_at';
+
+let expiryTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function getSessionExpiresAt(): number | null {
+  const raw = localStorage.getItem(AUTH_EXPIRES_KEY);
+  const n = raw ? Number(raw) : NaN;
+  return Number.isFinite(n) ? n : null;
+}
+
+function scheduleExpiry() {
+  if (expiryTimer) clearTimeout(expiryTimer);
+  expiryTimer = null;
+  const expiresAt = getSessionExpiresAt();
+  if (!expiresAt || !getToken()) return;
+  const delay = expiresAt - Date.now();
+  if (delay <= 0) {
+    clearAuth('SESSION_EXPIRED');
+    return;
+  }
+  // setTimeout overflows above ~24.8 days; re-check periodically instead
+  expiryTimer = setTimeout(scheduleExpiry, Math.min(delay, 12 * 60 * 60 * 1000));
+}
 
 function getToken() {
   return localStorage.getItem(AUTH_TOKEN_KEY);
 }
 
-function setAuth(token: string, user: any) {
+function setAuth(token: string, user: any, expiresAt?: number) {
   localStorage.setItem(AUTH_TOKEN_KEY, token);
   localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
-  notifyAuthChange('SIGNED_IN', { user, access_token: token } as any);
+  if (expiresAt) localStorage.setItem(AUTH_EXPIRES_KEY, String(expiresAt));
+  else localStorage.removeItem(AUTH_EXPIRES_KEY);
+  scheduleExpiry();
+  notifyAuthChange('SIGNED_IN', { user, access_token: token, expires_at: expiresAt } as any);
 }
 
-function clearAuth() {
+function clearAuth(event: 'SIGNED_OUT' | 'SESSION_EXPIRED' = 'SIGNED_OUT') {
+  if (expiryTimer) clearTimeout(expiryTimer);
+  expiryTimer = null;
   localStorage.removeItem(AUTH_TOKEN_KEY);
   localStorage.removeItem(AUTH_USER_KEY);
-  notifyAuthChange('SIGNED_OUT', null);
+  localStorage.removeItem(AUTH_EXPIRES_KEY);
+  notifyAuthChange(event, null);
 }
 
 function getStoredUser(): any {
@@ -30,6 +59,17 @@ function getStoredUser(): any {
   } catch {
     return null;
   }
+}
+
+function handleUnauthorized(res: Response) {
+  if (res.status === 401 && getToken()) {
+    clearAuth('SESSION_EXPIRED');
+  }
+}
+
+function setAuthFromSession(session: any) {
+  if (!session?.access_token) return;
+  setAuth(session.access_token, session.user, session.expires_at ? Number(session.expires_at) : undefined);
 }
 
 function getHeaders(): HeadersInit {
@@ -45,6 +85,7 @@ async function apiPost(path: string, body?: any) {
     headers: getHeaders(),
     body: body ? JSON.stringify(body) : undefined,
   });
+  if (!path.startsWith('/api/auth/signin')) handleUnauthorized(res);
   const json = await res.json().catch(() => ({}));
   if (!res.ok && !json.error) {
     return { data: null, error: { message: res.statusText } };
@@ -64,7 +105,7 @@ const auth = {
   async getSession() {
     const token = getToken();
     if (!token) return { data: { session: null }, error: null };
-    return { data: { session: { access_token: token, user: getStoredUser() || {} } }, error: null };
+    return { data: { session: { access_token: token, user: getStoredUser() || {}, expires_at: getSessionExpiresAt() } }, error: null };
   },
 
   async getUser() {
@@ -73,6 +114,10 @@ const auth = {
     // Refresh against server to keep profile fields up to date.
     try {
       const res = await fetch(`${API_URL}/api/auth/user`, { headers: getHeaders() });
+      if (res.status === 401) {
+        clearAuth('SESSION_EXPIRED');
+        return { data: { user: null }, error: null };
+      }
       const json = await res.json();
       if (json.data?.user) {
         localStorage.setItem(AUTH_USER_KEY, JSON.stringify(json.data.user));
@@ -103,14 +148,14 @@ const auth = {
         error: null,
       };
     }
-    if (json.data?.session) setAuth(json.data.session.access_token, json.data.session.user);
+    setAuthFromSession(json.data?.session);
     return { data: { session: json.data?.session, user: json.data?.user }, error: null };
   },
 
   async verify2FA({ email, tempToken, code, rememberMe }: { email: string; tempToken: string; code: string; rememberMe?: boolean }) {
     const json = await apiPost('/api/auth/2fa/verify', { email, tempToken, code, rememberMe });
     if (json.error) return { data: null, error: json.error };
-    if (json.data?.session) setAuth(json.data.session.access_token, json.data.session.user);
+    setAuthFromSession(json.data?.session);
     return { data: { session: json.data?.session, user: json.data?.user }, error: null };
   },
 
@@ -122,7 +167,7 @@ const auth = {
       department: options?.data?.department,
     });
     if (json.error) return { data: { user: null, session: null }, error: json.error };
-    if (json.data?.session) setAuth(json.data.session.access_token, json.data.session.user);
+    setAuthFromSession(json.data?.session);
     return { data: { user: json.data?.user, session: json.data?.session }, error: null };
   },
 
@@ -230,10 +275,12 @@ class QueryBuilder {
       headers: getHeaders(),
       body: JSON.stringify(body),
     });
+    handleUnauthorized(res);
     const json = await res.json().catch(() => ({ data: null, error: { message: res.statusText }, count: null }));
     if (!res.ok && !json.error) {
-      return { data: null, error: { message: res.statusText }, count: null };
+      return { data: null, error: { message: res.statusText, status: res.status }, count: null };
     }
+    if (json.error && !res.ok) json.error.status = res.status;
     return json;
   }
 
@@ -284,6 +331,8 @@ const storageClient = {
     };
   }
 };
+
+if (typeof window !== 'undefined') scheduleExpiry();
 
 export const supabase = {
   auth,
