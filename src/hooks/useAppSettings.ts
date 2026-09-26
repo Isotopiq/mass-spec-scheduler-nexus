@@ -11,6 +11,8 @@ export interface AppSettings {
   s3_bucket_display: string | null;
   max_booking_days_ahead: number;
   recurring_bookings_enabled: boolean;
+  session_timeout_hours: number;
+  remember_me_days: number;
   email_template_style: string;
   logo_url: string | null;
   favicon_url: string | null;

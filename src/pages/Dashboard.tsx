@@ -19,7 +19,7 @@ const Dashboard: React.FC = () => {
     const checkConnection = async () => {
       try {
         const { data, error } = await supabase.from('instruments').select('count');
-        if (error) {
+        if (error && (error as { status?: number }).status !== 401) {
           console.error('Error connecting to Supabase:', error);
           toast.error('Error connecting to database');
         } else {

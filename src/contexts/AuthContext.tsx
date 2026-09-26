@@ -164,6 +164,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }, 100);
       } else {
         setUser(null);
+        if (event === 'SESSION_EXPIRED') {
+          toast.info('Your session has expired. Please log in again.', { id: 'session-expired' });
+        }
       }
     });
 

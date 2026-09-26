@@ -17,6 +17,8 @@ const BookingSettings: React.FC = () => {
   const { settings, isLoading, reload } = useAppSettings();
   const [days, setDays] = useState(365);
   const [recurringEnabled, setRecurringEnabled] = useState(false);
+  const [sessionTimeoutHours, setSessionTimeoutHours] = useState(24);
+  const [rememberMeDays, setRememberMeDays] = useState(30);
   const [releaseEnabled, setReleaseEnabled] = useState(false);
   const [releaseWindowDays, setReleaseWindowDays] = useState(14);
   const [releaseTime, setReleaseTime] = useState("09:00");
@@ -51,6 +53,8 @@ const BookingSettings: React.FC = () => {
     if (settings) {
       setDays(settings.max_booking_days_ahead ?? 365);
       setRecurringEnabled(settings.recurring_bookings_enabled ?? false);
+      setSessionTimeoutHours(settings.session_timeout_hours ?? 24);
+      setRememberMeDays(settings.remember_me_days ?? 30);
       setReleaseEnabled(settings.booking_release_enabled ?? false);
       setReleaseWindowDays(settings.booking_release_window_days ?? 14);
       setReleaseTime(String(settings.booking_release_time || "09:00").slice(0, 5));
@@ -71,6 +75,8 @@ const BookingSettings: React.FC = () => {
     const values: Record<string, any> = {
       max_booking_days_ahead: days,
       recurring_bookings_enabled: recurringEnabled,
+      session_timeout_hours: Math.max(1, Math.round(sessionTimeoutHours)),
+      remember_me_days: Math.max(1, Math.round(rememberMeDays)),
       booking_release_enabled: releaseEnabled,
       booking_release_window_days: releaseWindowDays,
       booking_release_time: releaseTime,
@@ -225,6 +231,39 @@ const BookingSettings: React.FC = () => {
                 </div>
               </div>
             )}
+          </div>
+
+          <div className="rounded-lg border p-4 space-y-4">
+            <div className="space-y-0.5">
+              <Label className="block">Session timeout</Label>
+              <p className="text-sm text-muted-foreground">
+                How long a login stays valid before users are automatically signed out. Applies to new logins only.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="sessionTimeoutHours">Standard login (hours)</Label>
+                <Input
+                  id="sessionTimeoutHours"
+                  type="number"
+                  min={1}
+                  value={sessionTimeoutHours}
+                  onChange={(e) => setSessionTimeoutHours(Number(e.target.value))}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="rememberMeDays">&quot;Remember me&quot; (days)</Label>
+                <Input
+                  id="rememberMeDays"
+                  type="number"
+                  min={1}
+                  value={rememberMeDays}
+                  onChange={(e) => setRememberMeDays(Number(e.target.value))}
+                  required
+                />
+              </div>
+            </div>
           </div>
 
           <Button type="submit" disabled={saving}>

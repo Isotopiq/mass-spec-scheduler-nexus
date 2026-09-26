@@ -783,6 +783,13 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+async function sessionExpiresIn(rememberMe) {
+  const settings = await getSettings();
+  const hours = Math.max(1, parseInt(settings?.session_timeout_hours, 10) || 24);
+  const days = Math.max(1, parseInt(settings?.remember_me_days, 10) || 30);
+  return rememberMe ? `${days}d` : `${hours}h`;
+}
+
 function durationSeconds(expiresIn) {
   const match = typeof expiresIn === 'string' && expiresIn.match(/^(\d+)([smhd])$/);
   if (!match) return 604800;
@@ -1382,7 +1389,7 @@ app.post('/api/auth/signin', async (req, res) => {
     }
 
     await pool.query('UPDATE profiles SET last_sign_in_at = now() WHERE id = $1', [rows[0].id]);
-    const expiresIn = rememberMe ? '30d' : '1d';
+    const expiresIn = await sessionExpiresIn(rememberMe);
     const { user, accessToken, expires_in } = userRowToSession(rows[0], { expiresIn });
     res.json({ data: { user, session: { access_token: accessToken, token_type: 'bearer', expires_in, expires_at: Date.now() + expires_in * 1000, user } }, error: null });
   } catch (err) {
@@ -1547,7 +1554,7 @@ app.post('/api/auth/2fa/verify', async (req, res) => {
     });
     if (!valid) throw new Error('Invalid verification code');
     await pool.query('UPDATE profiles SET last_sign_in_at = now() WHERE id = $1', [rows[0].id]);
-    const expiresIn = rememberMe ? '30d' : '1d';
+    const expiresIn = await sessionExpiresIn(rememberMe);
     const { user, accessToken, expires_in } = userRowToSession(rows[0], { expiresIn });
     res.json({
       data: {

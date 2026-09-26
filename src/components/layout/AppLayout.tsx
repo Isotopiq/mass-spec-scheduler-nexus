@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import Navbar from "./Navbar";
 import { useAuth } from "../../contexts/AuthContext";
+import { supabase } from "../../integrations/supabase/client";
 import { useOptimizedBooking } from "../../contexts/OptimizedBookingContext";
 import Footer from "./Footer";
 import { Loader2 } from "lucide-react";
@@ -56,8 +57,9 @@ const AppLayout: React.FC = () => {
         if (elapsedTime > autoLogoutTime) {
           console.log(`Auto logout triggered after ${autoLogoutMinutes} minutes of inactivity`);
           clearInterval(checkActivityInterval);
-          navigate('/login', { state: { autoLogout: true } });
-          window.location.reload();
+          supabase.auth.signOut().finally(() => {
+            navigate('/login', { state: { autoLogout: true } });
+          });
         }
       }, 10000);
 
