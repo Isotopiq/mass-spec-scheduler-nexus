@@ -1,0 +1,19 @@
+project_id = "jfsktwwlkmdieldnqlqt"
+
+[functions.s3-upload-sequence]
+verify_jwt = false
+
+[functions.s3-download-sequence]
+verify_jwt = false
+
+[functions.s3-delete-sequence]
+verify_jwt = false
+
+[functions.s3-replace-sequence]
+verify_jwt = false
+
+[functions.s3-test-connection]
+verify_jwt = false
+
+[functions.send-email]
+verify_jwt = false
