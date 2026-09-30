@@ -72,7 +72,8 @@ export const useStatusColors = () => {
 
   // Get color for a specific status
   const getStatusColor = (status: string): string => {
-    const statusColor = statusColors.find(sc => sc.status === status);
+    const needle = String(status || '').toLowerCase();
+    const statusColor = statusColors.find(sc => sc.status.toLowerCase() === needle);
     return statusColor?.color || '#6b7280'; // Default gray color
   };
 

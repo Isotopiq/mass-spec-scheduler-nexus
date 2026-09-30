@@ -42,7 +42,7 @@ export const OptimizedBookingProvider: React.FC<{ children: React.ReactNode }> =
 
   // Memoized status color function
   const getStatusColor = useCallback((status: string) => {
-    return statusColors[status] || '#6b7280';
+    return statusColors[String(status || '').toLowerCase()] || '#6b7280';
   }, [statusColors]);
 
   // Load status colors
@@ -55,7 +55,7 @@ export const OptimizedBookingProvider: React.FC<{ children: React.ReactNode }> =
       if (error) throw error;
       
       const colorsMap = data.reduce((acc, item) => {
-        acc[item.status] = item.color;
+        acc[String(item.status).toLowerCase()] = item.color;
         return acc;
       }, {} as Record<string, string>);
       
