@@ -1,37 +1,80 @@
 
-import React from "react";
-import { Navigate, useNavigate, useLocation } from "react-router-dom";
+import React, { useState } from "react";
+import { Navigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import AuthModal from "../components/auth/AuthModal";
+import { useAppSettings } from "../hooks/useAppSettings";
+import LoginForm from "../components/auth/LoginForm";
+import PasswordResetDialog from "../components/auth/PasswordResetDialog";
+import { Button } from "../components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
+import { Loader2 } from "lucide-react";
+import { SiteLogo } from "../components/SiteLogo";
 
 const LoginPage: React.FC = () => {
-  const { isAuthenticated } = useAuth();
-  const navigate = useNavigate();
-  const location = useLocation();
-  
-  // Get the redirect path from location state, or default to dashboard
-  const from = (location.state as { from?: string })?.from || "/";
+  const { isLoading, isAuthenticated } = useAuth();
+  const { settings } = useAppSettings();
+  const [isPasswordResetOpen, setIsPasswordResetOpen] = useState(false);
 
-  // Redirect to dashboard if already authenticated
-  if (isAuthenticated) {
-    return <Navigate to={from} replace />;
-  }
+  console.log("LoginPage: Render - loading:", isLoading, "authenticated:", isAuthenticated);
 
-  return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-white to-mslab-100 p-4">
-      <div className="mb-8">
-        <div className="mx-auto w-16 h-16 mb-4">
-          <img 
-            src="/lovable-uploads/d1df28cb-f0ae-4b17-aacf-f7e08d48d146.png" 
-            alt="MSLab Logo" 
-            className="h-full w-full object-contain" 
-          />
+  // Show loading while checking authentication
+  if (isLoading) {
+    console.log("LoginPage: Showing loading state");
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="flex flex-col items-center space-y-4">
+          <Loader2 className="h-10 w-10 animate-spin text-mslab-400" />
+          <span className="text-lg text-mslab-400">Loading...</span>
         </div>
       </div>
-      <AuthModal />
-      <div className="mt-8 text-center text-sm text-muted-foreground">
-        &copy; {new Date().getFullYear()} MSLab Scheduler. All rights reserved.
+    );
+  }
+
+  // Redirect if authenticated
+  if (isAuthenticated) {
+    console.log("LoginPage: User authenticated, redirecting to dashboard");
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  console.log("LoginPage: Showing login form");
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full space-y-8">
+        <div className="text-center">
+          <SiteLogo
+            src={settings?.logo_url}
+            alt="TeSlab Lab Logo"
+            className="mx-auto h-16 w-auto object-contain mb-4"
+            fallbackClassName="mx-auto h-16 w-16 mb-4"
+          />
+        </div>
+        <Card>
+          <CardHeader className="space-y-1">
+            <CardTitle className="text-2xl text-center">Welcome to MSLab Scheduler</CardTitle>
+            <CardDescription className="text-center">
+              Sign in to your account to manage laboratory instruments and bookings
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <LoginForm />
+            <div className="text-center">
+              <Button
+                variant="link"
+                onClick={() => setIsPasswordResetOpen(true)}
+                className="text-sm text-muted-foreground hover:text-primary"
+              >
+                Forgot your password?
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
+      
+      <PasswordResetDialog
+        isOpen={isPasswordResetOpen}
+        onClose={() => setIsPasswordResetOpen(false)}
+      />
     </div>
   );
 };
