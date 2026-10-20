@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { format, addDays, startOfWeek, endOfWeek, addWeeks, subWeeks, isToday, isSameDay, parseISO, startOfMonth, endOfMonth, addMonths, subMonths, eachDayOfInterval } from "date-fns";
+import { format, addDays, startOfWeek, endOfWeek, addWeeks, subWeeks, isToday, isSameDay, parseISO, startOfDay, endOfDay, startOfMonth, endOfMonth, addMonths, subMonths, eachDayOfInterval } from "date-fns";
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Pencil } from "lucide-react";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
@@ -43,27 +43,21 @@ const CalendarView: React.FC = () => {
       );
     }
 
+    // Include bookings that overlap the range, so multi-day bookings that began earlier still show
+    const overlapping = (rangeStart: Date, rangeEnd: Date) =>
+      filteredBookings.filter(booking =>
+        getBookingDate(booking.start) <= rangeEnd && getBookingDate(booking.end) > rangeStart
+      );
+
     if (viewMode === "day") {
-      return filteredBookings.filter(booking => {
-        const bookingDate = getBookingDate(booking.start);
-        return isSameDay(bookingDate, selectedDate);
-      });
+      return overlapping(startOfDay(selectedDate), endOfDay(selectedDate));
     } else if (viewMode === "week") {
-      const weekStart = startOfWeek(selectedDate, { weekStartsOn: 0 });
-      const weekEnd = endOfWeek(selectedDate, { weekStartsOn: 0 });
-      
-      return filteredBookings.filter(booking => {
-        const bookingDate = getBookingDate(booking.start);
-        return bookingDate >= weekStart && bookingDate <= weekEnd;
-      });
+      return overlapping(startOfWeek(selectedDate, { weekStartsOn: 0 }), endOfWeek(selectedDate, { weekStartsOn: 0 }));
     } else if (viewMode === "month") {
-      const monthStart = startOfMonth(selectedDate);
-      const monthEnd = endOfMonth(selectedDate);
-      
-      return filteredBookings.filter(booking => {
-        const bookingDate = getBookingDate(booking.start);
-        return bookingDate >= monthStart && bookingDate <= monthEnd;
-      });
+      return overlapping(
+        startOfWeek(startOfMonth(selectedDate), { weekStartsOn: 0 }),
+        endOfWeek(endOfMonth(selectedDate), { weekStartsOn: 0 })
+      );
     }
     return filteredBookings;
   }, [bookings, selectedInstrument, viewMode, selectedDate, getBookingDate]);
@@ -231,10 +225,9 @@ const CalendarView: React.FC = () => {
         
         <div className="space-y-2">
           {days.map((day) => {
-            const dayBookings = visibleBookings.filter(booking => {
-              const bookingDate = getBookingDate(booking.start);
-              return isSameDay(bookingDate, day);
-            });
+            const dayBookings = visibleBookings.filter(booking =>
+              getBookingDate(booking.start) <= endOfDay(day) && getBookingDate(booking.end) > startOfDay(day)
+            );
             
             return (
               <div key={day.toString()} className="border-t pt-2">
@@ -345,7 +338,7 @@ const CalendarView: React.FC = () => {
                   const dayBookings = visibleBookings.filter(booking => {
                     const s = getBookingDate(booking.start);
                     const e = getBookingDate(booking.end);
-                    return s <= dayEnd && e >= dayStart;
+                    return s <= dayEnd && e > dayStart;
                   });
 
                   const formatHours = (start: string | Date, end: string | Date) => {
@@ -393,13 +386,17 @@ const CalendarView: React.FC = () => {
                               title={`${booking.instrumentName}\nBooked by ${booking.userName}\n${formatDateRange(booking.start, booking.end)} (${formatHours(booking.start, booking.end)})\nStatus: ${booking.status}`}
                             >
                               <div className="truncate font-medium leading-tight">
-                                {continuesFromPrev ? "↞ " : formatTime(booking.start)}
-                                {` – `}
-                                {continuesToNext ? `${formatTime(booking.end)} ↠` : formatTime(booking.end)}
+                                {continuesFromPrev && continuesToNext
+                                  ? "↞ All day ↠"
+                                  : continuesFromPrev
+                                    ? `↞ until ${formatTime(booking.end)}`
+                                    : continuesToNext
+                                      ? `${formatTime(booking.start)} onward ↠`
+                                      : `${formatTime(booking.start)} – ${formatTime(booking.end)}`}
                                 {` · ${booking.instrumentName}`}
                               </div>
                               <div className="truncate text-[10px] text-muted-foreground mt-0.5">
-                                {booking.userName} · {formatHours(booking.start, booking.end)}
+                                {booking.userName} · {formatHours(booking.start, booking.end)}{(continuesFromPrev || continuesToNext) ? " total" : ""}
                               </div>
                               <div className="mt-1 flex justify-center">
                                 <StatusBadge status={booking.status} className="text-[10px] px-1.5 py-0" />
