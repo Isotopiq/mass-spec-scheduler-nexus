@@ -5,7 +5,7 @@ import { Badge } from "../ui/badge";
 import { useOptimizedBooking } from "../../contexts/OptimizedBookingContext";
 import { useAuth } from "../../contexts/AuthContext";
 import { Loader2, Clock } from "lucide-react";
-import { format, isToday } from "date-fns";
+import { format, isSameDay } from "date-fns";
 
 const CurrentBookings: React.FC = () => {
   const { bookings, isLoading, refreshData } = useOptimizedBooking();
@@ -19,15 +19,17 @@ const CurrentBookings: React.FC = () => {
     }
   }, [bookings.length, isLoading, refreshData]);
 
-  // Get current bookings (in progress today)
+  // Get current bookings (in progress now, including multi-day bookings that started earlier)
   const now = new Date();
   const currentBookings = bookings.filter(booking => {
     const bookingStart = new Date(booking.start);
     const bookingEnd = new Date(booking.end);
-    
+    const status = String(booking.status || "").toLowerCase();
+    if (status === "cancelled" || status === "denied") return false;
+
     return (
       booking.status === "In-Progress" ||
-      (isToday(bookingStart) && now >= bookingStart && now <= bookingEnd)
+      (now >= bookingStart && now <= bookingEnd)
     );
   });
 
@@ -39,7 +41,10 @@ const CurrentBookings: React.FC = () => {
   const formatTimeRange = (start: string, end: string): string => {
     const startDate = new Date(start);
     const endDate = new Date(end);
-    return `${format(startDate, "h:mm a")} - ${format(endDate, "h:mm a")}`;
+    if (isSameDay(startDate, endDate)) {
+      return `${format(startDate, "h:mm a")} - ${format(endDate, "h:mm a")}`;
+    }
+    return `${format(startDate, "MMM d, h:mm a")} - ${format(endDate, "MMM d, h:mm a")}`;
   };
 
   return (

@@ -5,7 +5,7 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { Calendar, Clock, FileText, MessageCircle, Loader2, Trash2, X, ArrowLeftRight, LogIn, LogOut } from "lucide-react";
-import { format } from "date-fns";
+import { format, isSameDay } from "date-fns";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -114,6 +114,7 @@ export const BookingCard: React.FC<BookingCardProps> = ({
           <CardDescription className="flex items-center gap-2 mt-1">
             <Calendar className="h-4 w-4" />
             {format(new Date(booking.start), "PPP")}
+            {!isSameDay(new Date(booking.start), new Date(booking.end)) && ` – ${format(new Date(booking.end), "PPP")}`}
           </CardDescription>
         </div>
         <div className="flex items-center gap-2">
@@ -182,7 +183,9 @@ export const BookingCard: React.FC<BookingCardProps> = ({
     <CardContent className="space-y-3">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Clock className="h-4 w-4" />
-        {format(new Date(booking.start), "p")} - {format(new Date(booking.end), "p")}
+        {isSameDay(new Date(booking.start), new Date(booking.end))
+          ? `${format(new Date(booking.start), "p")} - ${format(new Date(booking.end), "p")}`
+          : `${format(new Date(booking.start), "MMM d, p")} - ${format(new Date(booking.end), "MMM d, p")}`}
       </div>
       
       {booking.purpose && (

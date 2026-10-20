@@ -81,7 +81,9 @@ const MyBookingsPage: React.FC = () => {
     const current = filteredAndSortedBookings.filter(booking => {
       const startTime = new Date(booking.start);
       const endTime = new Date(booking.end);
-      return (startTime <= now && endTime >= now && booking.status === "In-Progress") || 
+      const status = String(booking.status || "").toLowerCase();
+      // Any active booking whose window includes now (e.g. day 2 of a multi-day run), not only checked-in ones
+      return (startTime <= now && endTime >= now && !["completed", "cancelled", "denied"].includes(status)) ||
              booking.status === "Delayed";
     });
 

@@ -25,7 +25,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "../ui/alert-dialog";
-import { format } from "date-fns";
+import { format, isSameDay } from "date-fns";
 import { Clock, User, FileText, CheckCircle, XCircle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -138,7 +138,8 @@ const PendingBookingsManagement: React.FC = () => {
                 {pendingBookings.map((booking) => {
                   const startDate = new Date(booking.start);
                   const endDate = new Date(booking.end);
-                  const durationHours = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60);
+                  const durationHours = Math.round(((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60)) * 100) / 100;
+                  const multiDay = !isSameDay(startDate, endDate);
                   
                   return (
                     <TableRow key={booking.id}>
@@ -153,9 +154,14 @@ const PendingBookingsManagement: React.FC = () => {
                       </TableCell>
                       <TableCell>
                         <div className="space-y-1">
-                          <div>{format(startDate, "MMM d, yyyy")}</div>
+                          <div>
+                            {format(startDate, "MMM d, yyyy")}
+                            {multiDay && ` – ${format(endDate, "MMM d, yyyy")}`}
+                          </div>
                           <div className="text-sm text-muted-foreground">
-                            {format(startDate, "h:mm a")} - {format(endDate, "h:mm a")}
+                            {multiDay
+                              ? `${format(startDate, "MMM d, h:mm a")} - ${format(endDate, "MMM d, h:mm a")}`
+                              : `${format(startDate, "h:mm a")} - ${format(endDate, "h:mm a")}`}
                           </div>
                         </div>
                       </TableCell>
