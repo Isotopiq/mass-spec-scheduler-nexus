@@ -1,29 +1,27 @@
 
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useToast } from "../../hooks/use-toast";
 import { Button } from "../ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "../ui/form";
 import { Input } from "../ui/input";
 import { useAuth } from "../../contexts/AuthContext";
+import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 const formSchema = z.object({
-  name: z.string().min(2, { message: "Name must be at least 2 characters" }),
+  name: z.string().min(1, { message: "Name is required" }),
   email: z.string().email({ message: "Please enter a valid email" }),
   password: z.string().min(6, { message: "Password must be at least 6 characters" }),
-  confirmPassword: z.string(),
-}).refine(data => data.password === data.confirmPassword, {
-  message: "Passwords do not match",
-  path: ["confirmPassword"],
 });
 
 type FormValues = z.infer<typeof formSchema>;
 
 const SignupForm: React.FC = () => {
   const { signup } = useAuth();
-  const { toast } = useToast();
+  const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
 
   const form = useForm<FormValues>({
@@ -32,24 +30,38 @@ const SignupForm: React.FC = () => {
       name: "",
       email: "",
       password: "",
-      confirmPassword: "",
     },
   });
 
   const onSubmit = async (values: FormValues) => {
     try {
       setIsLoading(true);
-      await signup(values.name, values.email, values.password);
-      toast({
-        title: "Account created!",
-        description: "Welcome to the Mass Spec Lab",
-      });
+      console.log("Attempting signup with:", values.email);
+      
+      await signup(values.email, values.password, values.name);
+      
+      console.log("Signup successful");
+      toast.success("Account created successfully! Please check your email for verification.");
+      
+      // Navigate after a short delay
+      setTimeout(() => {
+        navigate("/dashboard", { replace: true });
+      }, 500);
     } catch (error) {
-      toast({
-        title: "Registration failed",
-        description: error instanceof Error ? error.message : "Please try again",
-        variant: "destructive",
-      });
+      console.error("Signup error:", error);
+      
+      let errorMessage = "Failed to create account. ";
+      if (error instanceof Error) {
+        if (error.message.includes('User already registered')) {
+          errorMessage = "An account with this email already exists.";
+        } else if (error.message.includes('Invalid email')) {
+          errorMessage = "Please provide a valid email address.";
+        } else {
+          errorMessage += error.message;
+        }
+      }
+      
+      toast.error(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -65,7 +77,7 @@ const SignupForm: React.FC = () => {
             <FormItem>
               <FormLabel>Full Name</FormLabel>
               <FormControl>
-                <Input placeholder="John Researcher" {...field} />
+                <Input placeholder="Enter your full name" {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -78,7 +90,7 @@ const SignupForm: React.FC = () => {
             <FormItem>
               <FormLabel>Email</FormLabel>
               <FormControl>
-                <Input placeholder="your.email@example.com" {...field} />
+                <Input type="email" placeholder="your.email@example.com" {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -97,21 +109,13 @@ const SignupForm: React.FC = () => {
             </FormItem>
           )}
         />
-        <FormField
-          control={form.control}
-          name="confirmPassword"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Confirm Password</FormLabel>
-              <FormControl>
-                <Input type="password" placeholder="••••••••" {...field} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
         <Button className="w-full" type="submit" disabled={isLoading}>
-          {isLoading ? "Creating Account..." : "Sign Up"}
+          {isLoading ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 
+              Creating Account...
+            </>
+          ) : "Create Account"}
         </Button>
       </form>
     </Form>

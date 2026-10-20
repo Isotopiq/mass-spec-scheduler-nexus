@@ -1,5 +1,5 @@
 
-import React from "react";
+import React, { useState } from "react";
 import {
   BarChart,
   Bar,
@@ -16,18 +16,20 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../components/ui/tabs";
 import { Button } from "../components/ui/button";
-import { useBooking } from "../contexts/BookingContext";
+import { useOptimizedBooking } from "../contexts/OptimizedBookingContext";
 import { exportAnalyticsToPDF } from "../utils/pdfExport";
 
 const AnalyticsPage: React.FC = () => {
-  const { statistics } = useBooking();
+  const { statistics } = useOptimizedBooking();
+  const [activeTab, setActiveTab] = useState("usage");
 
   // Colors for the charts
   const COLORS = ["#9b87f5", "#7E69AB", "#6E59A5", "#D6BCFA", "#E5DEFF"];
 
-  // Format data for user booking pie chart
+  // Format data for user booking pie chart with shortened names
   const userPieData = statistics.userBookings.map(item => ({
-    name: item.userName,
+    name: item.userName.length > 10 ? item.userName.substring(0, 10) + "..." : item.userName,
+    fullName: item.userName,
     value: item.bookingCount
   }));
 
@@ -47,6 +49,30 @@ const AnalyticsPage: React.FC = () => {
     exportAnalyticsToPDF(statistics, "MSLab Analytics Report");
   };
 
+  // Custom label function for pie chart to prevent overlap
+  const renderCustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent, index }: any) => {
+    if (percent < 0.05) return null; // Don't show labels for slices smaller than 5%
+    
+    const RADIAN = Math.PI / 180;
+    const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
+    const x = cx + radius * Math.cos(-midAngle * RADIAN);
+    const y = cy + radius * Math.sin(-midAngle * RADIAN);
+
+    return (
+      <text 
+        x={x} 
+        y={y} 
+        fill="white" 
+        textAnchor={x > cx ? 'start' : 'end'} 
+        dominantBaseline="central"
+        fontSize="12"
+        fontWeight="bold"
+      >
+        {`${(percent * 100).toFixed(0)}%`}
+      </text>
+    );
+  };
+
   return (
     <div className="container py-6 space-y-6">
       <div className="flex justify-between items-center">
@@ -56,11 +82,19 @@ const AnalyticsPage: React.FC = () => {
         </Button>
       </div>
       
-      <Tabs defaultValue="usage" className="w-full">
-        <TabsList>
-          <TabsTrigger value="usage">Usage Analysis</TabsTrigger>
-          <TabsTrigger value="users">User Analytics</TabsTrigger>
-          <TabsTrigger value="trends">Trends</TabsTrigger>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card><CardContent className="pt-6"><p className="text-sm text-muted-foreground">Total Bookings</p><p className="text-3xl font-bold">{statistics.totalBookings}</p></CardContent></Card>
+        <Card><CardContent className="pt-6"><p className="text-sm text-muted-foreground">Avg Duration</p><p className="text-3xl font-bold">{statistics.averageDurationHours}h</p></CardContent></Card>
+        <Card><CardContent className="pt-6"><p className="text-sm text-muted-foreground">Check-ins</p><p className="text-3xl font-bold">{statistics.checkInCount}</p></CardContent></Card>
+        <Card><CardContent className="pt-6"><p className="text-sm text-muted-foreground">No-shows</p><p className="text-3xl font-bold">{statistics.noShowCount}</p></CardContent></Card>
+      </div>
+
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="flex flex-wrap h-auto gap-2 p-1">
+          <TabsTrigger value="usage" onClick={() => setActiveTab("usage")}>Usage Analysis</TabsTrigger>
+          <TabsTrigger value="users" onClick={() => setActiveTab("users")}>User Analytics</TabsTrigger>
+          <TabsTrigger value="trends" onClick={() => setActiveTab("trends")}>Trends</TabsTrigger>
+          <TabsTrigger value="status" onClick={() => setActiveTab("status")}>Status</TabsTrigger>
         </TabsList>
         
         <TabsContent value="usage" className="pt-6">
@@ -108,8 +142,8 @@ const AnalyticsPage: React.FC = () => {
                       {statistics.instrumentUsage.length > 0 && (
                         <div>
                           <p className="text-xl font-semibold">{statistics.instrumentUsage[0].instrumentName}</p>
-                          <p className="text-sm">{statistics.instrumentUsage[0].bookingCount} bookings</p>
-                          <p className="text-sm">{statistics.instrumentUsage[0].totalHours.toFixed(1)} hours</p>
+                          <p className="text-sm text-green-600 font-medium">{statistics.instrumentUsage[0].totalHours.toFixed(1)} total hours</p>
+                          <p className="text-sm text-muted-foreground">{statistics.instrumentUsage[0].bookingCount} bookings</p>
                         </div>
                       )}
                     </div>
@@ -127,13 +161,13 @@ const AnalyticsPage: React.FC = () => {
                           fill="#8884d8"
                           dataKey="hours"
                           nameKey="name"
-                          label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                          label={renderCustomLabel}
                         >
                           {instrumentBarData.map((entry, index) => (
                             <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                           ))}
                         </Pie>
-                        <Tooltip />
+                        <Tooltip formatter={(value) => [`${value} hours`, "Usage"]} />
                       </PieChart>
                     </ResponsiveContainer>
                   </div>
@@ -156,18 +190,23 @@ const AnalyticsPage: React.FC = () => {
                       data={userPieData}
                       cx="50%"
                       cy="50%"
-                      labelLine={true}
+                      labelLine={false}
                       outerRadius={100}
                       fill="#8884d8"
                       dataKey="value"
                       nameKey="name"
-                      label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                      label={renderCustomLabel}
                     >
                       {userPieData.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip />
+                    <Tooltip 
+                      formatter={(value, name, props) => [
+                        `${value} bookings`, 
+                        props.payload.fullName
+                      ]} 
+                    />
                   </PieChart>
                 </ResponsiveContainer>
               </CardContent>
@@ -225,6 +264,40 @@ const AnalyticsPage: React.FC = () => {
               </ResponsiveContainer>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="status" className="pt-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <Card>
+              <CardHeader><CardTitle className="text-lg">Booking Status Distribution</CardTitle></CardHeader>
+              <CardContent className="h-80">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={statistics.statusDistribution}
+                      cx="50%" cy="50%" labelLine={false} outerRadius={100}
+                      fill="#8884d8" dataKey="value" nameKey="name" label={renderCustomLabel}
+                    >
+                      {statistics.statusDistribution.map((entry: any, index: number) => (
+                        <Cell key={`cell-status-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader><CardTitle className="text-lg">Operational Metrics</CardTitle></CardHeader>
+              <CardContent className="space-y-4">
+                <div><h3 className="text-sm text-muted-foreground">Confirmed bookings</h3><p className="text-2xl font-bold">{statistics.statusDistribution.find(s => s.name === 'confirmed')?.value || 0}</p></div>
+                <div><h3 className="text-sm text-muted-foreground">Pending approvals</h3><p className="text-2xl font-bold">{statistics.statusDistribution.find(s => s.name === 'pending')?.value || 0}</p></div>
+                <div><h3 className="text-sm text-muted-foreground">No-shows</h3><p className="text-2xl font-bold">{statistics.noShowCount}</p></div>
+                <div><h3 className="text-sm text-muted-foreground">Checked in</h3><p className="text-2xl font-bold">{statistics.checkInCount}</p></div>
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
       </Tabs>
     </div>
