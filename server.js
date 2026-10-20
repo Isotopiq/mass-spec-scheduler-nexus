@@ -412,15 +412,17 @@ async function enforceBookingRules(action, values, table, filters, user) {
   let instrumentId = values?.instrument_id;
   let bookingId = null;
   let existingStartTime = null;
+  let existing = null;
 
   // For update, gather existing if needed
   if (action === 'update' && values) {
     const idFilter = (filters || []).find(f => f.op === 'eq' && f.column === 'id');
     if (idFilter) {
       bookingId = idFilter.value;
-      const existing = await pool.query('SELECT * FROM bookings WHERE id = $1', [bookingId]);
-      if (existing.rows.length) {
-        const ex = existing.rows[0];
+      const existingResult = await pool.query('SELECT * FROM bookings WHERE id = $1', [bookingId]);
+      if (existingResult.rows.length) {
+        const ex = existingResult.rows[0];
+        existing = ex;
         existingStartTime = ex.start_time;
         if (!startTime) startTime = ex.start_time;
         if (!endTime) endTime = ex.end_time;
@@ -439,8 +441,20 @@ async function enforceBookingRules(action, values, table, filters, user) {
     }
   }
 
+  // Status/detail-only updates (e.g. approving or denying a booking, including one
+  // whose date has already passed) keep the slot that was validated when the booking
+  // was created or last moved, so scheduling rules are not re-applied.
+  if (action === 'update' && existing) {
+    const sameTime = (a, b) => new Date(a).getTime() === new Date(b).getTime();
+    const slotUnchanged = sameTime(startTime, existing.start_time)
+      && sameTime(endTime, existing.end_time)
+      && String(instrumentId) === String(existing.instrument_id);
+    const wasActive = !['cancelled', 'denied'].includes(String(existing.status || '').toLowerCase());
+    if (slotUnchanged && wasActive) return;
+  }
+
   // Horizon check when start_time is provided and is being changed on update
-  const startChanged = !existingStartTime || (startTime && startTime !== existingStartTime);
+  const startChanged = !existingStartTime || (startTime && new Date(startTime).getTime() !== new Date(existingStartTime).getTime());
   if (startTime && startChanged) {
     const settings = await getSettings();
     const start = new Date(startTime);

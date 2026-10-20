@@ -60,7 +60,7 @@ const PendingBookingsManagement: React.FC = () => {
       toast.success(`Booking for ${booking.instrumentName} approved`);
     } catch (error) {
       console.error("Failed to approve booking:", error);
-      toast.error("Failed to approve booking");
+      toast.error(`Failed to approve booking${(error as any)?.message ? `: ${(error as any).message}` : ""}`);
     } finally {
       setProcessingBooking(prev => ({ ...prev, [booking.id]: false }));
     }
@@ -79,7 +79,7 @@ const PendingBookingsManagement: React.FC = () => {
       toast.success(`Booking for ${booking.instrumentName} denied`);
     } catch (error) {
       console.error("Failed to deny booking:", error);
-      toast.error("Failed to deny booking");
+      toast.error(`Failed to deny booking${(error as any)?.message ? `: ${(error as any).message}` : ""}`);
     } finally {
       setProcessingBooking(prev => ({ ...prev, [booking.id]: false }));
     }
