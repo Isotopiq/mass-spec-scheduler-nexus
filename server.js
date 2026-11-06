@@ -403,8 +403,9 @@ async function enforceQuotaRules(userId, instrumentId, startTime, endTime, exclu
   }
 }
 
-async function enforceBookingRules(action, values, table, filters, user) {
+async function enforceBookingRules(action, values, table, filters, user, db) {
   if (table !== 'bookings') return;
+  const runQuery = (db || pool).query.bind(db || pool);
 
   let startTime = values?.start_time;
   let endTime = values?.end_time;
@@ -419,7 +420,7 @@ async function enforceBookingRules(action, values, table, filters, user) {
     const idFilter = (filters || []).find(f => f.op === 'eq' && f.column === 'id');
     if (idFilter) {
       bookingId = idFilter.value;
-      const existingResult = await pool.query('SELECT * FROM bookings WHERE id = $1', [bookingId]);
+      const existingResult = await runQuery('SELECT * FROM bookings WHERE id = $1', [bookingId]);
       if (existingResult.rows.length) {
         const ex = existingResult.rows[0];
         existing = ex;
@@ -453,6 +454,13 @@ async function enforceBookingRules(action, values, table, filters, user) {
     if (slotUnchanged && wasActive) return;
   }
 
+  // Serialize rule-check + write per instrument so concurrent requests cannot
+  // both pass the overlap check and then insert (e.g. double-submits/retries).
+  // Only taken when the caller passes a transaction client (`db`).
+  if (db && instrumentId) {
+    await db.query('SELECT pg_advisory_xact_lock(hashtext($1::text))', [String(instrumentId)]);
+  }
+
   // Horizon check when start_time is provided and is being changed on update
   const startChanged = !existingStartTime || (startTime && new Date(startTime).getTime() !== new Date(existingStartTime).getTime());
   if (startTime && startChanged) {
@@ -481,7 +489,7 @@ async function enforceBookingRules(action, values, table, filters, user) {
         AND start_time < $3 AND end_time > $4
       LIMIT 1
     `;
-    const { rows } = await pool.query(overlapQuery, [instrumentId, bookingId || null, endTime, startTime]);
+    const { rows } = await runQuery(overlapQuery, [instrumentId, bookingId || null, endTime, startTime]);
     if (rows.length) throw new Error('Booking conflict: this instrument is already booked during the selected time window.');
 
     // Maintenance conflict check
@@ -492,7 +500,7 @@ async function enforceBookingRules(action, values, table, filters, user) {
         AND start_time < $2 AND end_time > $3
       LIMIT 1
     `;
-    const { rows: maintRows } = await pool.query(maintQuery, [instrumentId, endTime, startTime]);
+    const { rows: maintRows } = await runQuery(maintQuery, [instrumentId, endTime, startTime]);
     if (maintRows.length) throw new Error('Instrument is unavailable due to scheduled maintenance during the selected time window.');
   }
 
@@ -553,6 +561,7 @@ async function validateMaintenanceEvent(action, values, filters) {
 async function handleRestQuery(req, res) {
   const user = req.user;
   const { table, action, columns, values, filters, order, limit, offset, single, count } = req.body || {};
+  let bookingTx = null;
 
   try {
     if (!user) throw new Error('Unauthorized');
@@ -604,9 +613,27 @@ async function handleRestQuery(req, res) {
       if (action === 'insert' && !safeValues.status) safeValues.status = 'pending';
     }
 
-    // For insert/update on bookings, run value copy/horizon/overlap
+    // For insert/update on bookings, run value copy/horizon/overlap. This runs
+    // inside a transaction that takes a per-instrument advisory lock, so the
+    // overlap check and the write are atomic: two concurrent requests (double
+    // submits, retries, recurring series) can no longer both insert the same slot.
+    // Every row of a multi-row insert is validated too (arrays used to skip checks).
     if (table === 'bookings' && safeValues && (action === 'insert' || action === 'update')) {
-      await enforceBookingRules(action, safeValues, table, filters, user);
+      if (action === 'update' && !(filters || []).some(f => f.op === 'eq' && f.column === 'id')) {
+        throw new Error('Booking updates must target a single booking id');
+      }
+      bookingTx = await pool.connect();
+      await bookingTx.query('BEGIN');
+      const rowsToValidate = Array.isArray(safeValues) ? safeValues : [safeValues];
+      for (const row of rowsToValidate) {
+        if (user.role !== 'admin') {
+          if (row.status && !['pending', 'cancelled'].includes(String(row.status).toLowerCase())) {
+            throw new Error('Users can only set booking status to pending or cancelled');
+          }
+          if (action === 'insert' && !row.status) row.status = 'pending';
+        }
+        await enforceBookingRules(action, row, table, filters, user, bookingTx);
+      }
     }
 
     if (table === 'instrument_maintenance' && safeValues && (action === 'insert' || action === 'update')) {
@@ -717,7 +744,12 @@ async function handleRestQuery(req, res) {
       }
     }
 
-    const queryResult = await pool.query(sql, params);
+    const queryResult = await (bookingTx || pool).query(sql, params);
+    if (bookingTx) {
+      await bookingTx.query('COMMIT');
+      bookingTx.release();
+      bookingTx = null;
+    }
     const rows = queryResult.rows;
     const rowCount = queryResult.rowCount;
 
@@ -765,6 +797,10 @@ async function handleRestQuery(req, res) {
     if (count === 'exact') result.count = rowCount ?? rows.length;
     res.json(result);
   } catch (err) {
+    if (bookingTx) {
+      try { await bookingTx.query('ROLLBACK'); } catch (e) { /* ignore */ }
+      bookingTx.release();
+    }
     console.error('REST query error:', err);
     res.status(400).json({ data: null, error: { message: err.message }, count: null });
   }
@@ -1769,9 +1805,10 @@ async function getSwapWithBookings(swapId) {
   return swapRows[0] || null;
 }
 
-async function findBookingConflict(bookingId, startTime, endTime, instrumentId, excludeIds) {
+async function findBookingConflict(bookingId, startTime, endTime, instrumentId, excludeIds, db) {
+  const runQuery = (db || pool).query.bind(db || pool);
   const exclude = [bookingId, ...excludeIds].filter(Boolean);
-  const { rows } = await pool.query(
+  const { rows } = await runQuery(
     `SELECT 1 FROM bookings
      WHERE instrument_id = $1 AND id <> ALL($2::uuid[]) AND lower(status) NOT IN ('cancelled', 'denied')
        AND start_time < $3 AND end_time > $4
@@ -1780,7 +1817,7 @@ async function findBookingConflict(bookingId, startTime, endTime, instrumentId, 
   );
   if (rows.length > 0) return true;
 
-  const { rows: maintRows } = await pool.query(
+  const { rows: maintRows } = await runQuery(
     `SELECT 1 FROM instrument_maintenance
      WHERE instrument_id = $1 AND lower(status) NOT IN ('cancelled', 'completed')
        AND start_time < $2 AND end_time > $3
@@ -1790,7 +1827,7 @@ async function findBookingConflict(bookingId, startTime, endTime, instrumentId, 
   return maintRows.length > 0;
 }
 
-async function canExecuteSwap(swap) {
+async function canExecuteSwap(swap, db) {
   // Check that swapping instrument/time between the two bookings doesn't create conflicts with other bookings.
   const requesterBooking = {
     id: swap.requester_booking_id,
@@ -1806,8 +1843,8 @@ async function canExecuteSwap(swap) {
   };
 
   // If swapped slots would overlap each other that's fine only if start/end match, which they do by exchange.
-  const aConflicts = await findBookingConflict(requesterBooking.id, requesterBooking.start, requesterBooking.end, requesterBooking.instrument_id, [recipientBooking.id]);
-  const bConflicts = await findBookingConflict(recipientBooking.id, recipientBooking.start, recipientBooking.end, recipientBooking.instrument_id, [requesterBooking.id]);
+  const aConflicts = await findBookingConflict(requesterBooking.id, requesterBooking.start, requesterBooking.end, requesterBooking.instrument_id, [recipientBooking.id], db);
+  const bConflicts = await findBookingConflict(recipientBooking.id, recipientBooking.start, recipientBooking.end, recipientBooking.instrument_id, [requesterBooking.id], db);
   return !aConflicts && !bConflicts;
 }
 
@@ -1834,31 +1871,43 @@ async function autoFillWaitlist(instrumentId, startTime, endTime) {
         status: 'confirmed'
       };
 
-      // Enforce horizon, quota, and overlap rules before auto-filling
+      // Enforce horizon, quota, and overlap rules before auto-filling; the
+      // rule check and the insert run in one locked transaction so a
+      // concurrent booking cannot slip in between.
+      const fillTx = await pool.connect();
+      let newBooking = null;
       try {
-        await enforceBookingRules('insert', instanceValues, 'bookings', [], { id: w.user_id, role: 'user' });
+        await fillTx.query('BEGIN');
+        await enforceBookingRules('insert', instanceValues, 'bookings', [], { id: w.user_id, role: 'user' }, fillTx);
+
+        // Check that this waiting slot is still free before converting
+        const overlap = await fillTx.query(
+          `SELECT 1 FROM bookings
+           WHERE instrument_id = $1
+             AND lower(status) NOT IN ('cancelled', 'denied')
+             AND start_time < $2 AND end_time > $3
+           LIMIT 1`,
+          [w.instrument_id, w.end_time, w.start_time]
+        );
+        if (overlap.rows.length) {
+          await fillTx.query('ROLLBACK');
+          continue;
+        }
+
+        const newBookingResult = await fillTx.query(
+          `INSERT INTO bookings (user_id, instrument_id, start_time, end_time, purpose, details, status)
+           VALUES ($1, $2, $3, $4, $5, $6, 'confirmed') RETURNING *`,
+          [instanceValues.user_id, instanceValues.instrument_id, instanceValues.start_time, instanceValues.end_time, instanceValues.purpose, instanceValues.details]
+        );
+        newBooking = newBookingResult.rows[0];
+        await fillTx.query('COMMIT');
       } catch (e) {
+        try { await fillTx.query('ROLLBACK'); } catch (re) { /* ignore */ }
         console.log('Waitlist auto-fill skipped: booking rules check failed -', e.message);
         continue;
+      } finally {
+        fillTx.release();
       }
-
-      // Check that this waiting slot is still free before converting
-      const overlap = await pool.query(
-        `SELECT 1 FROM bookings
-         WHERE instrument_id = $1
-           AND lower(status) NOT IN ('cancelled', 'denied')
-           AND start_time < $2 AND end_time > $3
-         LIMIT 1`,
-        [w.instrument_id, w.end_time, w.start_time]
-      );
-      if (overlap.rows.length) continue;
-
-      const newBookingResult = await pool.query(
-        `INSERT INTO bookings (user_id, instrument_id, start_time, end_time, purpose, details, status)
-         VALUES ($1, $2, $3, $4, $5, $6, 'confirmed') RETURNING *`,
-        [instanceValues.user_id, instanceValues.instrument_id, instanceValues.start_time, instanceValues.end_time, instanceValues.purpose, instanceValues.details]
-      );
-      const newBooking = newBookingResult.rows[0];
 
       await pool.query(
         `UPDATE booking_waitlist SET status = 'filled', filled_booking_id = $1, updated_at = now() WHERE id = $2`,
@@ -1887,6 +1936,15 @@ async function executeSwapTx(swap) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    // Lock both instruments (sorted, to avoid deadlocks) and re-verify inside
+    // the transaction: a booking could have landed in the window between the
+    // earlier check and this swap executing.
+    const lockIds = [requesterInstrumentId, recipientInstrumentId].map(String).sort();
+    for (const iid of lockIds) {
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1::text))', [iid]);
+    }
+    const stillSafe = await canExecuteSwap(swap, client);
+    if (!stillSafe) throw new Error('Cannot execute swap: one or both bookings would conflict with existing reservations');
     await client.query(
       'UPDATE bookings SET instrument_id = $1, start_time = $2, end_time = $3 WHERE id = $4',
       [requesterInstrumentId, requesterStart, requesterEnd, swap.requester_booking_id]
@@ -2671,14 +2729,24 @@ app.post('/api/bookings/recurring', requireAuth, async (req, res) => {
           details,
           status
         };
-        await enforceBookingRules('insert', instanceValues, 'bookings', [], req.user);
-        const { rows } = await pool.query(
-          `INSERT INTO bookings (user_id, instrument_id, start_time, end_time, purpose, details, status, recurrence_rule, parent_booking_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-          [req.user.id, instrumentId, instStart, instEnd, purpose || 'Recurring booking', details, status, `weekly:${slots.length}`, parentId]
-        );
-        created.push(rows[0]);
-        if (!parentId) parentId = rows[0].id;
+        const slotTx = await pool.connect();
+        try {
+          await slotTx.query('BEGIN');
+          await enforceBookingRules('insert', instanceValues, 'bookings', [], req.user, slotTx);
+          const { rows } = await slotTx.query(
+            `INSERT INTO bookings (user_id, instrument_id, start_time, end_time, purpose, details, status, recurrence_rule, parent_booking_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+            [req.user.id, instrumentId, instStart, instEnd, purpose || 'Recurring booking', details, status, `weekly:${slots.length}`, parentId]
+          );
+          await slotTx.query('COMMIT');
+          created.push(rows[0]);
+          if (!parentId) parentId = rows[0].id;
+        } catch (e) {
+          try { await slotTx.query('ROLLBACK'); } catch (re) { /* ignore */ }
+          throw e;
+        } finally {
+          slotTx.release();
+        }
       } catch (e) {
         skipped.push({ start: instStart, error: e.message });
       }
@@ -2739,37 +2807,83 @@ app.post('/api/schedule-delays', requireAuth, requireAdmin, async (req, res) => 
       qparams.push(instrumentId);
     }
     query += ' ORDER BY start_time DESC';
-    const { rows: targets } = await pool.query(query, qparams);
 
-    if (targets.length === 0) return res.json({ data: { affected: 0, skipped: 0 } });
+    // The whole delay application runs in one transaction, holding a
+    // per-instrument advisory lock (same lock booking writes take), so the
+    // conflict check below and the time shifts are atomic. Shifting a booking
+    // into an occupied slot — e.g. a booking that started before the cutoff —
+    // is rejected instead of silently creating an overlap.
+    const delayTx = await pool.connect();
+    let delay;
+    let moved = [];
+    try {
+      await delayTx.query('BEGIN');
+      const { rows: targets } = await delayTx.query(query, qparams);
+      if (targets.length === 0) {
+        await delayTx.query('COMMIT');
+        return res.json({ data: { affected: 0, skipped: 0 } });
+      }
 
-    const { rows: delayRows } = await pool.query(
-      'INSERT INTO schedule_delays (cutoff_time, delay_minutes, instrument_id, reason, applied_by, applied_by_name, affected_count, status) VALUES ($1, $2, $3, $4, $5, $6, 0, $7) RETURNING *',
-      [cutoffTime.toISOString(), Number(delayMinutes), instrumentId || null, reason || '', appliedBy || null, appliedByName || null, 'applied']
-    );
-    const delay = delayRows[0];
+      const lockIds = [...new Set(targets.map(t => String(t.instrument_id)))].sort();
+      for (const iid of lockIds) {
+        await delayTx.query('SELECT pg_advisory_xact_lock(hashtext($1::text))', [iid]);
+      }
 
-    const moved = [];
-    for (const booking of targets) {
-      const newStart = new Date(new Date(booking.start_time).getTime() + delayMs);
-      const newEnd = new Date(new Date(booking.end_time).getTime() + delayMs);
-      await pool.query(
-        'UPDATE bookings SET start_time = $1, end_time = $2 WHERE id = $3',
-        [newStart.toISOString(), newEnd.toISOString(), booking.id]
+      const { rows: delayRows } = await delayTx.query(
+        'INSERT INTO schedule_delays (cutoff_time, delay_minutes, instrument_id, reason, applied_by, applied_by_name, affected_count, status) VALUES ($1, $2, $3, $4, $5, $6, 0, $7) RETURNING *',
+        [cutoffTime.toISOString(), Number(delayMinutes), instrumentId || null, reason || '', appliedBy || null, appliedByName || null, 'applied']
       );
-      moved.push({ booking, newStart, newEnd });
-    }
+      delay = delayRows[0];
 
-    if (moved.length) {
-      const values = moved.map((m, i) => `($${i * 6 + 1}, $${i * 6 + 2}, $${i * 6 + 3}, $${i * 6 + 4}, $${i * 6 + 5}, $${i * 6 + 6})`).join(',');
-      const params = moved.flatMap(m => [delay.id, m.booking.id, m.booking.start_time, m.booking.end_time, m.newStart.toISOString(), m.newEnd.toISOString()]);
-      await pool.query(
-        `INSERT INTO schedule_delay_bookings (delay_id, booking_id, original_start, original_end, new_start, new_end) VALUES ${values}`,
-        params
-      );
-    }
+      const targetIds = targets.map(t => t.id);
+      for (const booking of targets) {
+        const newStart = new Date(new Date(booking.start_time).getTime() + delayMs);
+        const newEnd = new Date(new Date(booking.end_time).getTime() + delayMs);
+        const { rows: clashRows } = await delayTx.query(
+          `SELECT id, start_time, end_time FROM bookings
+           WHERE instrument_id = $1 AND id <> ALL($2::uuid[])
+             AND lower(status) NOT IN ('cancelled', 'denied')
+             AND start_time < $3 AND end_time > $4
+           LIMIT 1`,
+          [booking.instrument_id, targetIds, newEnd.toISOString(), newStart.toISOString()]
+        );
+        if (clashRows.length) {
+          throw new Error(`Delay would move booking ${booking.id} into an existing booking's time slot`);
+        }
+        const { rows: maintClash } = await delayTx.query(
+          `SELECT 1 FROM instrument_maintenance
+           WHERE instrument_id = $1 AND lower(status) NOT IN ('cancelled', 'completed')
+             AND start_time < $2 AND end_time > $3
+           LIMIT 1`,
+          [booking.instrument_id, newEnd.toISOString(), newStart.toISOString()]
+        );
+        if (maintClash.length) {
+          throw new Error(`Delay would move booking ${booking.id} into a scheduled maintenance window`);
+        }
+        await delayTx.query(
+          'UPDATE bookings SET start_time = $1, end_time = $2 WHERE id = $3',
+          [newStart.toISOString(), newEnd.toISOString(), booking.id]
+        );
+        moved.push({ booking, newStart, newEnd });
+      }
 
-    await pool.query('UPDATE schedule_delays SET affected_count = $1 WHERE id = $2', [moved.length, delay.id]);
+      if (moved.length) {
+        const values = moved.map((m, i) => `($${i * 6 + 1}, $${i * 6 + 2}, $${i * 6 + 3}, $${i * 6 + 4}, $${i * 6 + 5}, $${i * 6 + 6})`).join(',');
+        const params = moved.flatMap(m => [delay.id, m.booking.id, m.booking.start_time, m.booking.end_time, m.newStart.toISOString(), m.newEnd.toISOString()]);
+        await delayTx.query(
+          `INSERT INTO schedule_delay_bookings (delay_id, booking_id, original_start, original_end, new_start, new_end) VALUES ${values}`,
+          params
+        );
+      }
+
+      await delayTx.query('UPDATE schedule_delays SET affected_count = $1 WHERE id = $2', [moved.length, delay.id]);
+      await delayTx.query('COMMIT');
+    } catch (e) {
+      try { await delayTx.query('ROLLBACK'); } catch (re) { /* ignore */ }
+      throw e;
+    } finally {
+      delayTx.release();
+    }
 
     // Send notifications (best-effort)
     for (const m of moved) {
