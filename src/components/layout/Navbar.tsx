@@ -1,175 +1,230 @@
 
-import React from "react";
+import React, { useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Button } from "../ui/button";
+import { useAuth } from "../../contexts/AuthContext";
+import { useAppSettings } from "../../hooks/useAppSettings";
+import { 
+  Calendar, 
+  BarChart3, 
+  Settings2, 
+  User, 
+  LogOut, 
+  Home,
+  Beaker,
+  BookOpen,
+  ClipboardList,
+  Menu,
+  X
+} from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
-import { Calendar, Settings, LayoutDashboard, Settings as SettingsIcon, User } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { useAuth } from "../../contexts/AuthContext";
-import { Menubar, MenubarContent, MenubarItem, MenubarMenu, MenubarTrigger } from "../ui/menubar";
-import { AspectRatio } from "../ui/aspect-ratio";
+import { NotificationsDropdown } from "./NotificationsDropdown";
+import { SiteLogo } from "../SiteLogo";
 
 const Navbar: React.FC = () => {
-  const location = useLocation();
   const { user, logout } = useAuth();
-  
+  const { settings } = useAppSettings();
+  const location = useLocation();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   const isActive = (path: string) => location.pathname === path;
-  
-  const getInitials = (name: string) => {
-    return name
-      .split(" ")
-      .map(part => part[0])
-      .join("")
-      .toUpperCase();
-  };
+
+  // Memoize the avatar URL to prevent flashing
+  const avatarImageUrl = useMemo(() => {
+    return user?.profileImage 
+      ? `${user.profileImage}${user.profileImage.includes('?') ? '&' : '?'}t=${user.profileImage}`
+      : undefined;
+  }, [user?.profileImage]);
+
+  const navItems = [
+    { path: "/", label: "Home", icon: Home },
+    { path: "/dashboard", label: "Dashboard", icon: BarChart3 },
+    { path: "/calendar", label: "Calendar", icon: Calendar },
+    { path: "/instruments", label: "Instruments", icon: Beaker },
+    { path: "/my-bookings", label: "My Bookings", icon: BookOpen },
+    { path: "/analytics", label: "Analytics", icon: BarChart3 },
+  ];
+
+  const adminNavItems = [
+    { path: "/admin", label: "Admin", icon: Settings2 },
+  ];
+
+  if (!user) {
+    return null;
+  }
 
   return (
-    <header className="sticky top-0 z-30 w-full bg-background border-b shadow-sm">
-      <div className="container flex h-16 items-center justify-between">
-        <div className="flex items-center gap-6">
-          <Link to="/" className="flex items-center gap-2 font-semibold text-lg text-primary">
-            <div className="w-8 h-8">
-              <AspectRatio ratio={1/1} className="overflow-hidden">
-                <img 
-                  src="/lovable-uploads/d1df28cb-f0ae-4b17-aacf-f7e08d48d146.png" 
-                  alt="MSLab Logo" 
-                  className="object-contain w-full h-full" 
-                />
-              </AspectRatio>
+    <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex justify-between items-center h-16">
+          <div className="flex items-center space-x-4 flex-shrink-0 min-w-0">
+            <div className="xl:hidden">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                aria-label="Toggle navigation menu"
+                aria-expanded={mobileMenuOpen}
+              >
+                {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+                <span className="sr-only">Toggle navigation menu</span>
+              </Button>
             </div>
-            MSLab Scheduler
-          </Link>
-          
-          <Menubar className="hidden md:flex border-none bg-transparent">
-            <MenubarMenu>
-              <MenubarTrigger className={cn(
-                "cursor-pointer",
-                isActive("/") && "bg-muted text-foreground"
-              )}>
-                <Link to="/" className="flex items-center gap-2">
-                  <LayoutDashboard className="h-4 w-4" />
-                  Dashboard
-                </Link>
-              </MenubarTrigger>
-            </MenubarMenu>
+
+            <Link to="/" className="flex items-center flex-shrink-0 min-w-0">
+              <SiteLogo
+                src={settings?.logo_url}
+                alt="Site logo"
+                className="h-8 xl:h-10 w-auto max-w-[120px] sm:max-w-[140px] object-contain"
+              />
+              <span className="ml-2 text-base font-bold text-gray-900 hidden sm:inline whitespace-nowrap">
+                MSLab Scheduler
+              </span>
+            </Link>
             
-            <MenubarMenu>
-              <MenubarTrigger className={cn(
-                "cursor-pointer",
-                isActive("/calendar") && "bg-muted text-foreground"
-              )}>
-                <Link to="/calendar" className="flex items-center gap-2">
-                  <Calendar className="h-4 w-4" />
-                  Calendar
-                </Link>
-              </MenubarTrigger>
-            </MenubarMenu>
-            
-            <MenubarMenu>
-              <MenubarTrigger className={cn(
-                "cursor-pointer",
-                isActive("/instruments") && "bg-muted text-foreground"
-              )}>
-                <Link to="/instruments" className="flex items-center gap-2">
-                  <Settings className="h-4 w-4" />
-                  Instruments
-                </Link>
-              </MenubarTrigger>
-            </MenubarMenu>
-            
-            <MenubarMenu>
-              <MenubarTrigger className={cn(
-                "cursor-pointer",
-                isActive("/analytics") && "bg-muted text-foreground"
-              )}>
-                <Link to="/analytics" className="flex items-center gap-2">
-                  <Settings className="h-4 w-4" />
-                  Analytics
-                </Link>
-              </MenubarTrigger>
-            </MenubarMenu>
-            
-            {user?.role === "admin" && (
-              <MenubarMenu>
-                <MenubarTrigger className={cn(
-                  "cursor-pointer",
-                  isActive("/admin") && "bg-muted text-foreground"
-                )}>
-                  <Link to="/admin" className="flex items-center gap-2">
-                    <SettingsIcon className="h-4 w-4" />
-                    Admin
+            <div className="hidden xl:flex items-center space-x-1">
+              {navItems.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    className={`inline-flex items-center px-2 py-2 rounded-md text-sm font-medium whitespace-nowrap shrink-0 transition-colors ${
+                      isActive(item.path)
+                        ? "bg-mslab-100 text-mslab-700"
+                        : "text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+                    }`}
+                  >
+                    <Icon className="h-4 w-4 mr-1" />
+                    {item.label}
                   </Link>
-                </MenubarTrigger>
-              </MenubarMenu>
-            )}
-          </Menubar>
-        </div>
-        
-        <div className="flex items-center gap-4">
-          {user ? (
+                );
+              })}
+              
+              {user.role === "admin" && adminNavItems.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    className={`inline-flex items-center px-2 py-2 rounded-md text-sm font-medium whitespace-nowrap shrink-0 transition-colors ${
+                      isActive(item.path)
+                        ? "bg-mslab-100 text-mslab-700"
+                        : "text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+                    }`}
+                  >
+                    <Icon className="h-4 w-4 mr-1" />
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-4">
+            <NotificationsDropdown />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="relative h-8 w-8 rounded-full">
                   <Avatar className="h-8 w-8">
-                    <AvatarImage src={user.profileImage} alt={user.name} />
-                    <AvatarFallback className="bg-primary text-primary-foreground">
-                      {getInitials(user.name)}
-                    </AvatarFallback>
+                    <AvatarImage 
+                      src={avatarImageUrl} 
+                      alt={user.name}
+                    />
+                    <AvatarFallback>{user.name.charAt(0).toUpperCase()}</AvatarFallback>
                   </Avatar>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-56" align="end" forceMount>
-                <div className="flex items-center justify-start gap-2 p-2">
-                  <Avatar className="h-8 w-8">
-                    <AvatarImage src={user.profileImage} alt={user.name} />
-                    <AvatarFallback className="bg-primary text-primary-foreground">
-                      {getInitials(user.name)}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex flex-col space-y-1 leading-none">
-                    <p className="font-medium">{user.name}</p>
-                    <p className="text-sm text-muted-foreground">
+                <DropdownMenuLabel className="font-normal">
+                  <div className="flex flex-col space-y-1">
+                    <p className="text-sm font-medium leading-none">{user.name}</p>
+                    <p className="text-xs leading-none text-muted-foreground">
                       {user.email}
                     </p>
                   </div>
-                </div>
+                </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
-                  <Link to="/profile" className="flex items-center cursor-pointer w-full">
+                  <Link to="/profile" className="flex items-center">
                     <User className="mr-2 h-4 w-4" />
-                    Profile
+                    <span>Profile</span>
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
-                  <Link to="/settings" className="flex items-center cursor-pointer w-full">
-                    <Settings className="mr-2 h-4 w-4" />
-                    Settings
+                  <Link to="/my-bookings" className="flex items-center">
+                    <ClipboardList className="mr-2 h-4 w-4" />
+                    <span>My Bookings</span>
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link to="/settings" className="flex items-center">
+                    <Settings2 className="mr-2 h-4 w-4" />
+                    <span>Settings</span>
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  className="cursor-pointer"
-                  onClick={logout}
-                >
-                  Log Out
+                <DropdownMenuItem onClick={logout}>
+                  <LogOut className="mr-2 h-4 w-4" />
+                  <span>Log out</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          ) : (
-            <Button variant="default" asChild>
-              <Link to="/login">Log In</Link>
-            </Button>
-          )}
+          </div>
         </div>
       </div>
-    </header>
+
+      {mobileMenuOpen && (
+        <div className="absolute top-16 left-0 w-full bg-white border-b shadow-lg px-4 py-4 xl:hidden z-50">
+          <div className="flex flex-col space-y-2">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={`inline-flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                    isActive(item.path)
+                      ? "bg-mslab-100 text-mslab-700"
+                      : "text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+                  }`}
+                >
+                  <Icon className="h-4 w-4 mr-2" />
+                  {item.label}
+                </Link>
+              );
+            })}
+            {user.role === "admin" && adminNavItems.map((item) => {
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={`inline-flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                    isActive(item.path)
+                      ? "bg-mslab-100 text-mslab-700"
+                      : "text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+                  }`}
+                >
+                  <Icon className="h-4 w-4 mr-2" />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </nav>
   );
 };
 
