@@ -403,7 +403,15 @@ async function enforceQuotaRules(userId, instrumentId, startTime, endTime, exclu
   }
 }
 
-const VALID_BOOKING_STATUSES = new Set(['pending', 'confirmed', 'cancelled', 'denied', 'in_progress', 'completed']);
+// Every status the app legitimately writes, compared case-insensitively: REST
+// flows, check-in/check-out ('in_progress'/'completed'), and the admin edit
+// dialog's capitalized/hyphenated options ('In-Progress', 'Not-Started',
+// 'Delayed', 'Completed'). Values are stored as sent — the UI compares them
+// case-sensitively in several places, so they are not normalized here.
+const VALID_BOOKING_STATUSES = new Set([
+  'pending', 'confirmed', 'cancelled', 'denied', 'in_progress', 'in-progress',
+  'not_started', 'not-started', 'completed', 'delayed'
+]);
 
 async function enforceBookingRules(action, values, table, filters, user, db) {
   if (table !== 'bookings') return;

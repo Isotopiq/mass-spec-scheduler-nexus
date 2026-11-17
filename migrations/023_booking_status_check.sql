@@ -1,17 +1,29 @@
--- Guard bookings.status against values outside the known lifecycle.
+-- Guard bookings.status against values outside the app's real lifecycle.
 --
 -- Rows written with an empty/invalid status (accepted before server-side status
--- validation existed) were visible in the calendar and history but behaved
--- inconsistently across the conflict check and the status-only fast path, and
--- produced groups of identical overlapping rows. Normalize any such rows to
--- 'pending' (the state they were created as; admins can deny duplicates) and
--- then enforce the allowed set at the database level so no code path — REST,
--- hand-run SQL, or a future endpoint — can write an invalid status again.
+-- validation existed) rendered as overlapping duplicates in the calendar and
+-- history. Normalize any such rows to 'pending' (the state they were created
+-- as; admins can deny duplicates) and then enforce the allowed set.
+--
+-- The allowed set covers every status the app writes, matched
+-- case-insensitively: REST flows ('pending', 'confirmed', 'cancelled',
+-- 'denied'), check-in/check-out ('in_progress', 'completed'), and the admin
+-- edit dialog's capitalized options ('In-Progress', 'Not-Started', 'Delayed',
+-- 'Completed'). Existing rows keep their stored casing; the UI compares
+-- statuses case-sensitively in several places.
 
 UPDATE bookings
 SET status = 'pending'
-WHERE status NOT IN ('pending', 'confirmed', 'cancelled', 'denied', 'in_progress', 'completed');
+WHERE lower(status) NOT IN (
+  'pending', 'confirmed', 'cancelled', 'denied',
+  'in_progress', 'in-progress', 'not_started', 'not-started',
+  'completed', 'delayed'
+);
 
 ALTER TABLE bookings
   ADD CONSTRAINT bookings_status_valid
-  CHECK (status IN ('pending', 'confirmed', 'cancelled', 'denied', 'in_progress', 'completed'));
+  CHECK (lower(status) IN (
+    'pending', 'confirmed', 'cancelled', 'denied',
+    'in_progress', 'in-progress', 'not_started', 'not-started',
+    'completed', 'delayed'
+  ));
